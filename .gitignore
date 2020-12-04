@@ -1,0 +1,13 @@
+
+## Artifacts
+*.pyc
+*pycache*
+
+## Plots
+plots/distributions/
+
+## Data
+data/raw/depression/
+data/resources/*.txt
+data/results/
+!data/results/README.md

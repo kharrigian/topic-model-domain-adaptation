@@ -9,5 +9,5 @@ plots/distributions/
 ## Data
 data/raw/depression/
 data/resources/*.txt
-data/results/
+data/results/depression
 !data/results/README.md

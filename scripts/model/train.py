@@ -1,43 +1,9 @@
 
-## Where to Store Results
-output_dir = "./data/results/depression/plda/clpsych_wolohan/"
 
-## Path to Data Directory
-source = "clpsych"
-target =  "wolohan"
-
-## Sampling
-max_source_sample_size = None
-max_target_sample_size = 1000
-
-## Vocabulary Parameters
-vocab_alignment = "outer"
-min_doc_freq = 10
-rm_top = 250
-
-## Choose Data Used for Topic Model Training
-topic_model_data = "all" ## "all", "source", "target"
-
-## Topic Model Training Parameters
-use_plda = True
-use_labels = False ## Include Labels from Source Domain in LDA Training (Not for Development Eval)
-alpha = 0.1
-beta = 0.1
-n_iter = 1000
-n_burn = 250
-k_latent = 50
-k_per_label = 10 ## Only Used if using PLDA
-dev_sample_rate = 20
-
-## Classification Model Parameters
-average_rep = False
-norm = None
-C = 10
-max_iter = 5000
-
-## Script Parameters
-plot_document_topic = False
-plot_topic_word = False
+"""
+Train a topic model and associated classifier
+for depression classification.
+"""
 
 #################
 ### Imports
@@ -46,6 +12,8 @@ plot_topic_word = False
 ## Standard Library
 import os
 import sys
+import json
+import argparse
 
 ## External Libraries
 import numpy as np
@@ -73,6 +41,45 @@ DEPRESSION_DATA_DIR = f"./data/raw/depression/"
 #################
 ### Helpers
 #################
+
+def parse_arguments():
+    """
+
+    """
+    ## Initialize Parser Object
+    parser = argparse.ArgumentParser(description="")
+    ## Required Arguments
+    parser.add_argument("config",
+                        type=str,
+                        help="Path to configuration file")
+    ## Optional Arguments
+    parser.add_argument("--plot_document_topic",
+                        action="store_true",
+                        default=False)
+    parser.add_argument("--plot_topic_word",
+                        action="store_true",
+                        default=False)
+    ## Parse Arguments
+    args = parser.parse_args()
+    ## Check Config
+    if not os.path.exists(args.config):
+        raise FileNotFoundError(f"Config file does not exist: {args.config}")
+    return args
+
+class Config(object):
+
+    """
+
+    """
+
+    def __init__(self, filepath):
+        """
+
+        """
+        with open(filepath,"r") as the_file:
+            config = json.load(the_file)
+        for key, value in config.items():
+            setattr(self, key, value)
 
 def load_data(data_dir):
     """
@@ -188,7 +195,7 @@ def which_plda_topic(topic_n, plda_model):
     if cur_lbl >= len(labels):
         topic = "Latent Topic {} (#{} Overall)".format(cur_top_lbl, topic_n)
     else:
-        topic = "{} Topic {} (#{} Overall)".format(labels[cur_lbl], cur_top_lbl, topic_n)
+        topic = "{} Topic {} (#{} Overall)".format(labels[cur_lbl].title(), cur_top_lbl, topic_n)
     return topic
 
 def plot_average_topic_distribution(theta,
@@ -235,7 +242,7 @@ def plot_document_topic_distribution(doc,
     ax[1].set_xlabel("Topic", fontweight="bold")
     ax[1].set_ylabel("Topic Proportion (Post Burn-in)", fontweight="bold")
     ax[0].set_ylim(0)
-    ax[0].set_xlim(0,n_iter)
+    ax[0].set_xlim(0,theta.shape[0])
     for a in ax:
         a.spines["top"].set_visible(False)
         a.spines["right"].set_visible(False)
@@ -292,279 +299,6 @@ def plot_topic_word_distribution(topic,
     fig.subplots_adjust(top=.92)
     return fig, ax
 
-#################
-### Data Prep
-#################
-
-## Create Output Directory
-dirs = ["topic_model/document_topic/","topic_model/topic_word/","classification/"]
-for d in dirs:
-    ddir = f"{output_dir}/{d}"
-    if not os.path.exists(ddir):
-        _ = os.makedirs(ddir)
-
-## TODO: Cache Configuration
-
-## Load Data
-X_source, y_source, splits_source, filenames_source, users_source, terms_source = load_data(f"{DEPRESSION_DATA_DIR}{source}/")
-X_target, y_target, splits_target, filenames_target, users_target, terms_target = load_data(f"{DEPRESSION_DATA_DIR}{target}/")
-
-## Align Vocabulary Spaces
-X_source, X_target, vocab = align_data(X_source, X_target, terms_source, terms_target, vocab_alignment)
-
-## Split Data
-Xs_train, Xs_dev, Xs_test, ys_train, ys_dev, ys_test = split_data(X_source, y_source, splits_source)
-Xt_train, Xt_dev, Xt_test, yt_train, yt_dev, yt_test = split_data(X_target, y_target, splits_target)
-
-## TODO: Implement a Class Balance Sampling Mechanisms
-
-## Sampling
-if max_source_sample_size:
-    Xs_train, Xs_dev, ys_train, ys_dev = Xs_train[:max_source_sample_size], Xs_dev[:max_source_sample_size], ys_train[:max_source_sample_size], ys_dev[:max_source_sample_size]
-if max_target_sample_size:
-    Xt_train, Xt_dev, yt_train, yt_dev = Xt_train[:max_target_sample_size], Xt_dev[:max_target_sample_size], yt_train[:max_target_sample_size], yt_dev[:max_target_sample_size]
-
-#################
-### Corpus Generation
-#################
-
-## Which Data Goes into Corpus
-if topic_model_data == "all":
-    use_source = True
-    use_target = True
-elif topic_model_data == "source":
-    use_source = True
-    use_target = False
-elif topic_model_data == "target":
-    use_source = False
-    use_target = True
-else:
-    raise ValueError("Did not recognized parameter `topic_model_data`")
-
-## Initialize Corpus
-LOGGER.info("Generating Training Corpus")
-train_corpus, train_missing = generate_corpus(Xs_train, Xt_train, vocab, source=use_source, target=use_target, ys=ys_train if use_labels else None, yt=None)
-LOGGER.info("Generating Development Corpus")
-development_corpus, dev_missing = generate_corpus(Xs_dev, Xt_dev, vocab, source=True, target=True)
-if not use_source or not use_target:
-    LOGGER.info("Generating Training Corpus (Unused for Topic Model)")
-    train_corpus_unused, train_missing_unused = generate_corpus(Xs_train, Xt_train, vocab, source=not use_source, target=not use_target)
-
-#################
-### Topic Model Training
-#################
-
-## Initialize Model
-if use_plda:
-    model = tp.PLDAModel(alpha=alpha,
-                         eta=beta,
-                         latent_topics=k_latent,
-                         topics_per_label=k_per_label,
-                         min_df=min_doc_freq,
-                         rm_top=rm_top,
-                         corpus=train_corpus,
-                         seed=42)
-else:
-    model = tp.LDAModel(alpha=alpha,
-                        eta=beta,
-                        k=k_latent,
-                        min_df=min_doc_freq,
-                        rm_top=rm_top,
-                        corpus=train_corpus,
-                        seed=42)
-
-## Initialize Sampler
-model.train(1, workers=8)
-
-## Generate Development Documents
-if use_plda:
-    dev_docs = [model.make_doc([development_corpus._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(development_corpus._docs, total=len(development_corpus._docs), desc="Development Corpus Transformation", file=sys.stdout)]
-    if not use_source or not use_target:
-        unused_train_docs = [model.make_doc([train_corpus_unused._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(train_corpus_unused._docs, total=len(train_corpus_unused._docs), desc="Unused Training Corpus Transformation", file=sys.stdout)]
-else:
-    dev_docs = [model.make_doc([development_corpus._vocab.id2word[i] for i in d[0]]) for d in tqdm(development_corpus._docs, total=len(development_corpus._docs), desc="Development Corpus Transformation", file=sys.stdout)]
-    if not use_source or not use_target:
-        unused_train_docs = [model.make_doc([train_corpus_unused._vocab.id2word[i] for i in d[0]]) for d in tqdm(train_corpus_unused._docs, total=len(train_corpus_unused._docs), desc="Unused Training Corpus Transformation", file=sys.stdout)]
-
-## Corpus-Updated Parameters
-V = model.num_vocabs
-N = len(model.docs) if (use_source and use_target) else len(model.docs) + len(unused_train_docs)
-N_dev = len(dev_docs)
-K = model.k
-
-## Gibbs Cache
-ll = np.zeros(n_iter)
-phi = np.zeros((n_iter, K, V))
-theta_train = np.zeros((n_iter, N, K))
-theta_dev = np.zeros((n_iter, N_dev, K))
-
-## Train Model
-for epoch in tqdm(range(0, n_iter), desc="MCMC Iteration", file=sys.stdout):
-    ## Run Sample Epoch
-    model.train(1, workers=8)
-    ## Examine Data Fit
-    ll[epoch] = model.ll_per_word
-    ## Cache Parameters
-    phi[epoch] = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
-    epoch_theta_train = [model.infer(d,iter=1)[0] for d in model.docs]
-    if not use_source or not use_target:
-        epoch_theta_train = epoch_theta_train + model.infer(unused_train_docs,iter=1,together=True)[0]
-    theta_train[epoch] = np.vstack(epoch_theta_train)
-    if epoch % dev_sample_rate == 0 and epoch > n_burn:
-        theta_dev[epoch] = np.vstack(model.infer(dev_docs,iter=1,together=True)[0])
-
-## Isolate Non-Zero Dev Distributions (e.g. Sample Rate + Burn In)
-dev_infer_mask = [i for i, j in enumerate(theta_dev) if not (j==0).all().all()]
-
-## Cache Model Summary
-_ = model.summary(topic_word_top_n=20, file=open(f"{output_dir}/topic_model/model_summary.txt","w"))
-
-################
-### Topic Model Diagnostics
-################
-
-## Plot Likelihood
-fig, ax = plt.subplots(figsize=(10,5.8))
-ax.plot(ll)
-ax.spines["top"].set_visible(False)
-ax.spines["right"].set_visible(False)
-ax.set_xlabel("MCMC Iteration", fontweight="bold")
-ax.set_ylabel("Log-Likelihood", fontweight="bold")
-fig.tight_layout()
-fig.savefig(f"{output_dir}/topic_model/log_likelihood_train.png",dpi=300)
-plt.close(fig)
-
-## Evaluate Topics
-for k in range(model.k):
-    top_terms = [i[0] for i in model.get_topic_words(k, top_n=20)]
-    if use_plda:
-        LOGGER.info("{}: {}".format(which_plda_topic(k, model), ", ".join(top_terms)))
-    else:
-        LOGGER.info("{}: {}".format(k, ", ".join(top_terms)))
-
-## Show Average Topic Distribution (Training Data)
-LOGGER.info("Plotting Average Topic Distributions")
-fig, ax = plot_average_topic_distribution(theta=theta_train,
-                                          model=model,
-                                          use_plda=use_plda,
-                                          n_burn=n_burn)
-fig.savefig(f"{output_dir}/topic_model/average_topic_distribution_train.png",dpi=300)
-plt.close(fig)
-
-## Show Average Topic Distribution (Development Data)
-fig, ax = plot_average_topic_distribution(theta=theta_dev[dev_infer_mask],
-                                          model=model,
-                                          use_plda=use_plda,
-                                          n_burn=0)
-fig.savefig(f"{output_dir}/topic_model/average_topic_distribution_train.png",dpi=300)
-plt.close(fig)
-
-## Show Trace for a Document Topic Distribution (Random Sample)
-if plot_document_topic:
-    LOGGER.info("Plotting Sample of Document Topic Distributions")
-    for doc_n in np.random.choice(theta_train.shape[0], 10):
-        fig, ax = plot_document_topic_distribution(doc=doc_n,
-                                                theta=theta_train,
-                                                n_burn=n_burn)
-        fig.savefig(f"{output_dir}/topic_model/document_topic/train_{doc_n}.png",dpi=300)
-        plt.close(fig)
-
-## Show Trace for a Topic Word Distribution
-if plot_topic_word:
-    LOGGER.info("Plotting Topic Word Distributions")
-    for topic in tqdm(range(K), total=K, desc="Topic Word Dist.", file=sys.stdout):
-        fig, ax = plot_topic_word_distribution(topic=topic,
-                                            phi=phi,
-                                            model=model,
-                                            use_plda=use_plda,
-                                            n_trace=30,
-                                            n_top=30,
-                                            n_burn=n_burn)
-        fig.savefig(f"{output_dir}/topic_model/topic_word/topic_{topic}.png",dpi=300)
-        plt.close(fig)
-
-################
-### Depression Classifier Training
-################
-
-LOGGER.info("Beginning Classifier Training Procedure")
-
-## Isolate General Latent Representations
-theta_train_latent = theta_train[:,:,-k_latent:]
-theta_dev_latent = theta_dev[:,:,-k_latent:]
-
-## Get Ground Truth Labels
-y_train = np.array(
-    [j for i, j in enumerate(ys_train) if i not in train_missing.get("source")] + \
-    [j for i, j in enumerate(yt_train) if i not in train_missing.get("target")]
-)
-if not use_source:
-    y_train = np.hstack([y_train,
-                        [j for i, j in enumerate(ys_train) if i not in train_missing_unused.get("source")]])
-if not use_target:
-    y_train = np.hstack([y_train,
-                        [j for i, j in enumerate(yt_train) if i not in train_missing_unused.get("target")]])
-y_dev = np.array(
-    [j for i, j in enumerate(ys_dev) if i not in dev_missing.get("source")] + \
-    [j for i, j in enumerate(yt_dev) if i not in dev_missing.get("target")]
-)
-
-## Domain Masks
-if (use_source and use_target) or (use_source and not use_target):
-    source_train_ind = list(range(Xs_train.shape[0] - len(train_missing.get("source"))))
-    target_train_ind = list(range(len(source_train_ind), y_train.shape[0]))
-elif not use_source and use_target:
-    target_train_ind = list(range(Xt_train.shape[0] - len(train_missing.get("target"))))
-    source_train_ind = list(range(len(target_train_ind), y_train.shape[0]))
-source_dev_ind = list(range(Xs_dev.shape[0] - len(dev_missing.get("source"))))
-target_dev_ind = list(range(len(source_dev_ind), y_dev.shape[0]))
-
-## Separate Training Labels
-y_train_s = y_train[source_train_ind]
-y_train_t = y_train[target_train_ind]
-y_dev_s = y_dev[source_dev_ind]
-y_dev_t = y_dev[target_dev_ind]
-
-## Feature Preprocessing
-if average_rep:
-    ## Average
-    X_train = theta_train_latent[dev_infer_mask].mean(axis=0)
-    X_dev = theta_dev_latent[dev_infer_mask].mean(axis=0)
-    ## Normalization (If Desired)
-    if norm:
-        X_train = normalize(X_train, norm=norm, axis=1)
-        X_dev = normalize(X_dev, norm=norm, axis=1)
-    ## Reshape Data
-    X_train = X_train.reshape((1,X_train.shape[0],X_train.shape[1]))
-    X_dev = X_dev.reshape((1,X_dev.shape[0], X_dev.shape[1]))
-else:
-    ## Remove Burn In
-    X_train = theta_train_latent[dev_infer_mask].copy()
-    X_dev = theta_dev_latent[dev_infer_mask].copy()
-    ## Normalization (If Desired)
-    if norm:
-        X_train = np.stack([normalize(x, norm=norm, axis=1) for x in X_train])
-        X_dev = np.stack([normalize(x, norm=norm, axis=1) for x in X_dev])
-
-## Training
-models = []
-for x in tqdm(X_train, desc="Fitting Models", file=sys.stdout):
-    ## Fit Classifier
-    logit = LogisticRegression(C=C,
-                               random_state=42,
-                               max_iter=max_iter,
-                               solver='lbfgs')
-    logit.fit(x[source_train_ind], y_train[source_train_ind])
-    ## Get Predictions
-    models.append(logit)
-
-## Inference
-y_pred_train = np.zeros((len(models), X_train.shape[0], y_train.shape[0]))
-y_pred_dev = np.zeros((len(models), X_dev.shape[0], y_dev.shape[0]))
-for m, mdl in tqdm(enumerate(models), position=0, desc="Making Predictions", total=len(models), file=sys.stdout):
-    y_pred_train[m] = mdl.predict_proba(X_train[m])[:,1]
-    y_pred_dev[m] = mdl.predict_proba(X_dev[m])[:,1]
-
 def get_scores(y_true, y_score, threshold=0.5):
     """
 
@@ -580,56 +314,315 @@ def get_scores(y_true, y_score, threshold=0.5):
     recall = metrics.precision_score(y_true, y_pred_bin)
     return tpr, fpr, {"auc":auc,"avg_precision":avg_precision,"f1":f1,"precision":precision,"recall":recall}
 
-## ROC Curves
-LOGGER.info("Plotting ROC/AUC and Scoring Predictions")
-auc_scores = [[[],[]],[[],[]]]
-all_scores = []
-fig, ax = plt.subplots(2, 2, figsize=(10,5.8), sharex=True, sharey=True)
-for m, mdl_pred in tqdm(enumerate(y_pred_train), total=y_pred_train.shape[0], desc="Train Scoring", file=sys.stdout):
-    for l, latent_pred in enumerate(mdl_pred):
-        for d, dind in enumerate([source_train_ind, target_train_ind]):
-            d_l_pred = latent_pred[dind]
-            d_l_true = y_train[dind]
-            if len(d_l_pred) == 0:
-                continue
-            tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
-            auc_scores[d][0].append(dl_scores.get("auc",0))
-            dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"train"})
-            all_scores.append(dl_scores)
-            ax[d][0].plot(tpr, fpr, alpha=0.01 if not average_rep else .8, color=f"navy", linewidth=0.5 if not average_rep else 1)
-for m, mdl_pred in tqdm(enumerate(y_pred_dev), total=y_pred_dev.shape[0], desc="Development Scoring", file=sys.stdout):
-    for l, latent_pred in enumerate(mdl_pred):
-        for d, dind in enumerate([source_dev_ind, target_dev_ind]):
-            d_l_pred = latent_pred[dind]
-            d_l_true = y_dev[dind]
-            if len(d_l_pred) == 0:
-                continue
-            tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
-            dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"development"})
-            all_scores.append(dl_scores)
-            auc_scores[d][1].append(dl_scores.get("auc",0))
-            ax[d][1].plot(tpr, fpr, alpha=0.01 if not average_rep else .8, color=f"navy", linewidth=0.5 if not average_rep else 1)
-for i, domain in enumerate(["Source","Target"]):
-    ax[-1,i].set_xlabel("True Positive Rate", fontweight="bold")
-    ax[i, 0].set_ylabel("False Positive Rate", fontweight="bold")
-    for j, group in enumerate(["Train","Development"]):
-        ax[i,j].plot([0,1],[0,1],color="black",linestyle="--")
-        ax[i,j].spines["top"].set_visible(False)
-        ax[i,j].spines["right"].set_visible(False)
-        ax[i,j].set_title(f"{domain} {group}", fontweight="bold")
-        if len(auc_scores[i][j]) > 0:
-            ax[i,j].plot([],[],color="navy",label="Mean AUC: {:.3f}".format(np.mean(auc_scores[i][j])))
-            ax[i,j].legend(loc="lower right")
-        ax[i,j].set_xlim(0,1)
-        ax[i,j].set_ylim(0,1)
-fig.tight_layout()
-fig.savefig(f"{output_dir}/classification/roc_auc.png",dpi=300)
-plt.close(fig)
+def main():
+    """
 
-## Format Scores
-LOGGER.info("Caching Scores")
-all_scores_df = pd.DataFrame(all_scores)
-all_scores_df.to_csv(f"{output_dir}/classification/scores.csv",index=False)
+    """
+    ###################
+    ### Script Setup
+    ###################
+    ## Parse Command Line
+    args = parse_arguments()
+    ## Load Configuration
+    config = Config(filepath=args.config)
+    ## Create Output Directories
+    dirs = ["topic_model/document_topic/","topic_model/topic_word/","classification/"]
+    for d in dirs:
+        ddir = f"{config.output_dir}/{d}"
+        if not os.path.exists(ddir):
+            _ = os.makedirs(ddir)
+    ## Cache Configuration
+    _ = os.system(f"cp {args.config} {config.output_dir}/config.json")
+    ###################
+    ### Data Preparation
+    ###################
+    ## Load Data
+    X_source, y_source, splits_source, filenames_source, users_source, terms_source = load_data(f"{DEPRESSION_DATA_DIR}{config.source}/")
+    X_target, y_target, splits_target, filenames_target, users_target, terms_target = load_data(f"{DEPRESSION_DATA_DIR}{config.target}/")
+    ## Align Vocabulary Spaces
+    X_source, X_target, vocab = align_data(X_source, X_target, terms_source, terms_target, config.vocab_alignment)
+    ## Split Data
+    Xs_train, Xs_dev, Xs_test, ys_train, ys_dev, ys_test = split_data(X_source, y_source, splits_source)
+    Xt_train, Xt_dev, Xt_test, yt_train, yt_dev, yt_test = split_data(X_target, y_target, splits_target)
+    ## Sampling TODO: Implement a Class Balance Sampling Mechanisms
+    if config.max_source_sample_size:
+        Xs_train, Xs_dev, ys_train, ys_dev = Xs_train[:config.max_source_sample_size], Xs_dev[:config.max_source_sample_size], ys_train[:config.max_source_sample_size], ys_dev[:config.max_source_sample_size]
+    if config.max_target_sample_size:
+        Xt_train, Xt_dev, yt_train, yt_dev = Xt_train[:config.max_target_sample_size], Xt_dev[:config.max_target_sample_size], yt_train[:config.max_target_sample_size], yt_dev[:config.max_target_sample_size]
+    ###################
+    ### Corpus Generation
+    ###################
+    ## Which Data Goes into Corpus
+    if config.topic_model_data == "all":
+        use_source = True
+        use_target = True
+    elif config.topic_model_data == "source":
+        use_source = True
+        use_target = False
+    elif config.topic_model_data == "target":
+        use_source = False
+        use_target = True
+    else:
+        raise ValueError("Did not recognized parameter `topic_model_data`")
+    ## Initialize Corpus
+    LOGGER.info("Generating Training Corpus")
+    train_corpus, train_missing = generate_corpus(Xs_train, Xt_train, vocab, source=use_source, target=use_target, ys=ys_train if config.use_labels else None, yt=None)
+    LOGGER.info("Generating Development Corpus")
+    development_corpus, dev_missing = generate_corpus(Xs_dev, Xt_dev, vocab, source=True, target=True)
+    if not use_source or not use_target:
+        LOGGER.info("Generating Training Corpus (Unused for Topic Model)")
+        train_corpus_unused, train_missing_unused = generate_corpus(Xs_train, Xt_train, vocab, source=not use_source, target=not use_target)
+    ###################
+    ### Topic Model (Training)
+    ###################
+    ## Initialize Model
+    if config.use_plda:
+        model = tp.PLDAModel(alpha=config.alpha,
+                             eta=config.beta,
+                             latent_topics=config.k_latent,
+                             topics_per_label=config.k_per_label,
+                             min_df=config.min_doc_freq,
+                             rm_top=config.rm_top,
+                             corpus=train_corpus,
+                             seed=42)
+    else:
+        model = tp.LDAModel(alpha=config.alpha,
+                            eta=config.beta,
+                            k=config.k_latent,
+                            min_df=config.min_doc_freq,
+                            rm_top=config.rm_top,
+                            corpus=train_corpus,
+                            seed=42)
+    ## Initialize Sampler
+    model.train(1, workers=8)
+    ## Generate Development Documents
+    if config.use_plda:
+        dev_docs = [model.make_doc([development_corpus._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(development_corpus._docs, total=len(development_corpus._docs), desc="Development Corpus Transformation", file=sys.stdout)]
+        if not use_source or not use_target:
+            unused_train_docs = [model.make_doc([train_corpus_unused._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(train_corpus_unused._docs, total=len(train_corpus_unused._docs), desc="Unused Training Corpus Transformation", file=sys.stdout)]
+    else:
+        dev_docs = [model.make_doc([development_corpus._vocab.id2word[i] for i in d[0]]) for d in tqdm(development_corpus._docs, total=len(development_corpus._docs), desc="Development Corpus Transformation", file=sys.stdout)]
+        if not use_source or not use_target:
+            unused_train_docs = [model.make_doc([train_corpus_unused._vocab.id2word[i] for i in d[0]]) for d in tqdm(train_corpus_unused._docs, total=len(train_corpus_unused._docs), desc="Unused Training Corpus Transformation", file=sys.stdout)]
+    ## Corpus-Updated Parameters
+    V = model.num_vocabs
+    N = len(model.docs) if (use_source and use_target) else len(model.docs) + len(unused_train_docs)
+    N_dev = len(dev_docs)
+    K = model.k
+    ## Gibbs Cache
+    ll = np.zeros(config.n_iter)
+    phi = np.zeros((config.n_iter, K, V))
+    theta_train = np.zeros((config.n_iter, N, K))
+    theta_dev = np.zeros((config.n_iter, N_dev, K))
+    ## Train Model
+    for epoch in tqdm(range(0, config.n_iter), desc="MCMC Iteration", file=sys.stdout):
+        ## Run Sample Epoch
+        model.train(1, workers=8)
+        ## Examine Data Fit
+        ll[epoch] = model.ll_per_word
+        ## Cache Parameters
+        phi[epoch] = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
+        epoch_theta_train = [model.infer(d,iter=1)[0] for d in model.docs]
+        if not use_source or not use_target:
+            epoch_theta_train = epoch_theta_train + model.infer(unused_train_docs,iter=1,together=True)[0]
+        theta_train[epoch] = np.vstack(epoch_theta_train)
+        if epoch % config.dev_sample_rate == 0 and epoch > config.n_burn:
+            theta_dev[epoch] = np.vstack(model.infer(dev_docs,iter=1,together=True)[0])
+    ## Isolate Non-Zero Dev Distributions (e.g. Sample Rate + Burn In)
+    dev_infer_mask = [i for i, j in enumerate(theta_dev) if not (j==0).all().all()]
+    ## Cache Model Summary
+    _ = model.summary(topic_word_top_n=20, file=open(f"{config.output_dir}/topic_model/model_summary.txt","w"))
+    ################
+    ### Topic Model Diagnostics
+    ################
+    ## Plot Likelihood
+    fig, ax = plt.subplots(figsize=(10,5.8))
+    ax.plot(ll)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.set_xlabel("MCMC Iteration", fontweight="bold")
+    ax.set_ylabel("Log-Likelihood Per Word", fontweight="bold")
+    fig.tight_layout()
+    fig.savefig(f"{config.output_dir}/topic_model/log_likelihood_train.png",dpi=300)
+    plt.close(fig)
+    ## Evaluate Topics
+    for k in range(model.k):
+        top_terms = [i[0] for i in model.get_topic_words(k, top_n=20)]
+        if config.use_plda:
+            LOGGER.info("{}: {}".format(which_plda_topic(k, model), ", ".join(top_terms)))
+        else:
+            LOGGER.info("{}: {}".format(k, ", ".join(top_terms)))
+    ## Show Average Topic Distribution (Training Data)
+    LOGGER.info("Plotting Average Topic Distributions")
+    fig, ax = plot_average_topic_distribution(theta=theta_train,
+                                              model=model,
+                                              use_plda=config.use_plda,
+                                              n_burn=config.n_burn)
+    fig.savefig(f"{config.output_dir}/topic_model/average_topic_distribution_train.png",dpi=300)
+    plt.close(fig)
+    ## Show Average Topic Distribution (Development Data)
+    fig, ax = plot_average_topic_distribution(theta=theta_dev[dev_infer_mask],
+                                              model=model,
+                                              use_plda=config.use_plda,
+                                              n_burn=0)
+    fig.savefig(f"{config.output_dir}/topic_model/average_topic_distribution_development.png",dpi=300)
+    plt.close(fig)
+    ## Show Trace for a Document Topic Distribution (Random Sample)
+    if args.plot_document_topic:
+        LOGGER.info("Plotting Sample of Document Topic Distributions")
+        for doc_n in np.random.choice(theta_train.shape[1], 10):
+            fig, ax = plot_document_topic_distribution(doc=doc_n,
+                                                       theta=theta_train,
+                                                       n_burn=config.n_burn)
+            fig.savefig(f"{config.output_dir}/topic_model/document_topic/train_{doc_n}.png",dpi=300)
+            plt.close(fig)
+    ## Show Trace for a Topic Word Distribution
+    if args.plot_topic_word:
+        LOGGER.info("Plotting Topic Word Distributions")
+        for topic in tqdm(range(K), total=K, desc="Topic Word Dist.", file=sys.stdout):
+            fig, ax = plot_topic_word_distribution(topic=topic,
+                                                   phi=phi,
+                                                   model=model,
+                                                   use_plda=config.use_plda,
+                                                   n_trace=30,
+                                                   n_top=30,
+                                                   n_burn=config.n_burn)
+            fig.savefig(f"{config.output_dir}/topic_model/topic_word/topic_{topic}.png",dpi=300)
+            plt.close(fig)
+    ################
+    ### Depression Classifier Training
+    ################
+    LOGGER.info("Beginning Classifier Training Procedure")
+    ## Isolate General Latent Representations
+    theta_train_latent = theta_train[:,:,-config.k_latent:]
+    theta_dev_latent = theta_dev[:,:,-config.k_latent:]
+    ## Get Ground Truth Labels
+    y_train = np.array(
+        [j for i, j in enumerate(ys_train) if i not in train_missing.get("source")] + \
+        [j for i, j in enumerate(yt_train) if i not in train_missing.get("target")]
+    )
+    if not use_source:
+        y_train = np.hstack([y_train,
+                            [j for i, j in enumerate(ys_train) if i not in train_missing_unused.get("source")]])
+    if not use_target:
+        y_train = np.hstack([y_train,
+                            [j for i, j in enumerate(yt_train) if i not in train_missing_unused.get("target")]])
+    y_dev = np.array(
+        [j for i, j in enumerate(ys_dev) if i not in dev_missing.get("source")] + \
+        [j for i, j in enumerate(yt_dev) if i not in dev_missing.get("target")]
+    )
+    ## Domain Masks
+    if (use_source and use_target) or (use_source and not use_target):
+        source_train_ind = list(range(Xs_train.shape[0] - len(train_missing.get("source"))))
+        target_train_ind = list(range(len(source_train_ind), y_train.shape[0]))
+    elif not use_source and use_target:
+        target_train_ind = list(range(Xt_train.shape[0] - len(train_missing.get("target"))))
+        source_train_ind = list(range(len(target_train_ind), y_train.shape[0]))
+    source_dev_ind = list(range(Xs_dev.shape[0] - len(dev_missing.get("source"))))
+    target_dev_ind = list(range(len(source_dev_ind), y_dev.shape[0]))
+    ## Separate Training Labels
+    y_train_s = y_train[source_train_ind]
+    y_train_t = y_train[target_train_ind]
+    y_dev_s = y_dev[source_dev_ind]
+    y_dev_t = y_dev[target_dev_ind]
+    ## Cycle Through Types of Preprocessing, Training, and Inference
+    all_scores = []
+    for average_representation in [False, True]:
+        for norm in [None, "l1","l2","max"]:
+            LOGGER.info("Feature Set: Average Representation ({}), Norm ({})".format(average_representation, norm))
+            if average_representation:
+                ## Average
+                X_train = theta_train_latent[dev_infer_mask].mean(axis=0)
+                X_dev = theta_dev_latent[dev_infer_mask].mean(axis=0)
+                ## Normalization (If Desired)
+                if norm:
+                    X_train = normalize(X_train, norm=norm, axis=1)
+                    X_dev = normalize(X_dev, norm=norm, axis=1)
+                ## Reshape Data
+                X_train = X_train.reshape((1,X_train.shape[0],X_train.shape[1]))
+                X_dev = X_dev.reshape((1,X_dev.shape[0], X_dev.shape[1]))
+            else:
+                ## Remove Burn In
+                X_train = theta_train_latent[dev_infer_mask].copy()
+                X_dev = theta_dev_latent[dev_infer_mask].copy()
+                ## Normalization (If Desired)
+                if norm:
+                    X_train = np.stack([normalize(x, norm=norm, axis=1) for x in X_train])
+                    X_dev = np.stack([normalize(x, norm=norm, axis=1) for x in X_dev])
+            ## Training
+            models = []
+            for x in tqdm(X_train, desc="Fitting Models", file=sys.stdout):
+                ## Fit Classifier
+                logit = LogisticRegression(C=config.C,
+                                           random_state=42,
+                                           max_iter=config.max_iter,
+                                           solver='lbfgs')
+                logit.fit(x[source_train_ind], y_train[source_train_ind])
+                ## Get Predictions
+                models.append(logit)
+            ## Inference
+            y_pred_train = np.zeros((len(models), X_train.shape[0], y_train.shape[0]))
+            y_pred_dev = np.zeros((len(models), X_dev.shape[0], y_dev.shape[0]))
+            for m, mdl in tqdm(enumerate(models), position=0, desc="Making Predictions", total=len(models), file=sys.stdout):
+                y_pred_train[m] = mdl.predict_proba(X_train[m])[:,1]
+                y_pred_dev[m] = mdl.predict_proba(X_dev[m])[:,1]
+            ## ROC Curves
+            LOGGER.info("Plotting ROC/AUC and Scoring Predictions")
+            auc_scores = [[[],[]],[[],[]]]
+            fig, ax = plt.subplots(2, 2, figsize=(10,5.8), sharex=True, sharey=True)
+            for m, mdl_pred in tqdm(enumerate(y_pred_train), total=y_pred_train.shape[0], desc="Train Scoring", file=sys.stdout):
+                for l, latent_pred in enumerate(mdl_pred):
+                    for d, dind in enumerate([source_train_ind, target_train_ind]):
+                        d_l_pred = latent_pred[dind]
+                        d_l_true = y_train[dind]
+                        if len(d_l_pred) == 0:
+                            continue
+                        tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
+                        auc_scores[d][0].append(dl_scores.get("auc",0))
+                        dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"train"})
+                        dl_scores.update({"norm":norm, "is_average_representation":average_representation})
+                        all_scores.append(dl_scores)
+                        ax[d][0].plot(tpr, fpr, alpha=0.01 if not average_representation else .8, color=f"navy", linewidth=0.5 if not average_representation else 1)
+            for m, mdl_pred in tqdm(enumerate(y_pred_dev), total=y_pred_dev.shape[0], desc="Development Scoring", file=sys.stdout):
+                for l, latent_pred in enumerate(mdl_pred):
+                    for d, dind in enumerate([source_dev_ind, target_dev_ind]):
+                        d_l_pred = latent_pred[dind]
+                        d_l_true = y_dev[dind]
+                        if len(d_l_pred) == 0:
+                            continue
+                        tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
+                        dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"development"})
+                        dl_scores.update({"norm":norm, "is_average_representation":average_representation})
+                        all_scores.append(dl_scores)
+                        auc_scores[d][1].append(dl_scores.get("auc",0))
+                        ax[d][1].plot(tpr, fpr, alpha=0.01 if not average_representation else .8, color=f"navy", linewidth=0.5 if not average_representation else 1)
+            for i, domain in enumerate(["Source","Target"]):
+                ax[-1,i].set_xlabel("True Positive Rate", fontweight="bold")
+                ax[i, 0].set_ylabel("False Positive Rate", fontweight="bold")
+                for j, group in enumerate(["Train","Development"]):
+                    ax[i,j].plot([0,1],[0,1],color="black",linestyle="--")
+                    ax[i,j].spines["top"].set_visible(False)
+                    ax[i,j].spines["right"].set_visible(False)
+                    ax[i,j].set_title(f"{domain} {group}", fontweight="bold")
+                    if len(auc_scores[i][j]) > 0:
+                        ax[i,j].plot([],[],color="navy",label="Mean AUC: {:.3f}".format(np.mean(auc_scores[i][j])))
+                        ax[i,j].legend(loc="lower right")
+                    ax[i,j].set_xlim(0,1)
+                    ax[i,j].set_ylim(0,1)
+            fig.tight_layout()
+            fig.savefig(f"{config.output_dir}/classification/roc_auc_{average_representation}_{norm}.png",dpi=300)
+            plt.close(fig)
+    ## Format Scores
+    LOGGER.info("Caching Scores")
+    all_scores_df = pd.DataFrame(all_scores)
+    all_scores_df.to_csv(f"{config.output_dir}/classification/scores.csv",index=False)
+    ## Script Complete
+    LOGGER.info("Done!")
 
-## Script Complete
-LOGGER.info("Done!")
+#################
+### Execute
+#################
+
+## Run Program
+if __name__ == "__main__":
+    _ = main()

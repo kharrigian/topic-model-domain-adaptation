@@ -4,14 +4,17 @@
     "source" : "clpsych",
     "target" : "wolohan",
 
-    "max_source_sample_size" : 100,
-    "max_target_sample_size" : 100,
+    "source_class_ratio":{"train":[1,1], "dev":[1,1]},
+    "target_class_ratio":{"train":[1,1], "dev":[1,1]},
+
+    "source_sample_size" : {"train":518, "dev":124},
+    "target_sample_size" : {"train":518, "dev":124},
 
     "vocab_alignment" : "outer",
     "min_doc_freq" : 10,
     "rm_top" : 250,
 
-    "topic_model_data" : "all",
+    "topic_model_data" : "source",
     "use_plda" : false,
     "use_labels" : false,
     "alpha" : 0.1,

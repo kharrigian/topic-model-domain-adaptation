@@ -314,6 +314,75 @@ def get_scores(y_true, y_score, threshold=0.5):
     recall = metrics.precision_score(y_true, y_pred_bin)
     return tpr, fpr, {"auc":auc,"avg_precision":avg_precision,"f1":f1,"precision":precision,"recall":recall}
 
+def _rebalance(X,
+               y,
+               class_ratio=None,
+               random_seed=42):
+    """
+
+    """
+    ## Set Seed
+    if random_seed is not None:
+        np.random.seed(random_seed)
+    ## Case 0: No Action
+    if class_ratio is None:
+        return X, y
+    ## Get Data Distribution
+    n0 = (y==0).sum()
+    n1 = (y==1).sum()
+    ## Target Control Size
+    target_control_size = int(n1 * class_ratio[1] / class_ratio[0])
+    ## Case 1: Keep Target Class Fixed
+    if n0 >= target_control_size:
+        control_sample = np.random.choice(np.where(y==0)[0], target_control_size, replace=False)
+        target_sample = np.where(y==1)[0]
+    ## Case 2: Downsample Everything So That Ratio Is Preserved
+    else:
+        n_target = n1
+        while (n_target * class_ratio[1]) > n0:
+            n_target -= 1
+        n_control = class_ratio[1] * n_target
+        control_sample = np.random.choice(np.where(y==0)[0], n_control, replace=False)
+        target_sample = np.random.choice(np.where(y==1)[0], n_target, replace=False)
+    ## Apply Mask
+    mask = sorted(list(control_sample) + list(target_sample))
+    X = X[mask].copy()
+    y = y[mask].copy()
+    return X, y
+
+def _downsample(X,
+                y,
+                sample_size=None,
+                random_seed=42):
+    """
+
+    """
+    ## Set Seed
+    if random_seed is not None:
+        np.random.seed(random_seed)
+    ## Case 0: No Action
+    if sample_size is None:
+        return X, y
+    ## Create Sample
+    mask = np.random.choice(X.shape[0], min(sample_size, X.shape[0]), replace=False)
+    X = X[mask].copy()
+    y = y[mask].copy()
+    return X, y
+
+def sample_data(X,
+                y,
+                class_ratio=None,
+                sample_size=None,
+                random_seed=42):
+    """
+
+    """
+    ## Rebalance Data
+    X, y = _rebalance(X, y, class_ratio, random_seed)
+    ## Downsample Data
+    X, y = _downsample(X, y, sample_size, random_seed)
+    return X, y
+
 def main():
     """
 
@@ -344,11 +413,11 @@ def main():
     ## Split Data
     Xs_train, Xs_dev, Xs_test, ys_train, ys_dev, ys_test = split_data(X_source, y_source, splits_source)
     Xt_train, Xt_dev, Xt_test, yt_train, yt_dev, yt_test = split_data(X_target, y_target, splits_target)
-    ## Sampling TODO: Implement a Class Balance Sampling Mechanisms
-    if config.max_source_sample_size:
-        Xs_train, Xs_dev, ys_train, ys_dev = Xs_train[:config.max_source_sample_size], Xs_dev[:config.max_source_sample_size], ys_train[:config.max_source_sample_size], ys_dev[:config.max_source_sample_size]
-    if config.max_target_sample_size:
-        Xt_train, Xt_dev, yt_train, yt_dev = Xt_train[:config.max_target_sample_size], Xt_dev[:config.max_target_sample_size], yt_train[:config.max_target_sample_size], yt_dev[:config.max_target_sample_size]
+    ## Sampling 
+    Xs_train, ys_train = sample_data(Xs_train, ys_train, config.source_class_ratio.get("train"), config.source_sample_size.get("train"))
+    Xs_dev, ys_dev = sample_data(Xs_dev, ys_dev, config.source_class_ratio.get("dev"), config.source_sample_size.get("dev"))
+    Xt_train, yt_train = sample_data(Xt_train, yt_train, config.target_class_ratio.get("train"), config.target_sample_size.get("train"))
+    Xt_dev, yt_dev = sample_data(Xt_dev, yt_dev, config.target_class_ratio.get("dev"), config.target_sample_size.get("dev"))
     ###################
     ### Corpus Generation
     ###################

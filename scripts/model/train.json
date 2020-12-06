@@ -14,7 +14,7 @@
     "min_doc_freq" : 10,
     "rm_top" : 250,
 
-    "topic_model_data" : "source",
+    "topic_model_data" : "all",
     "use_plda" : false,
     "use_labels" : false,
     "alpha" : 0.1,
@@ -25,6 +25,6 @@
     "k_per_label" : 10, 
     "dev_sample_rate" : 20,
 
-    "C" : 10,
+    "C" : 1,
     "max_iter" : 5000
 }

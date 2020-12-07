@@ -7,16 +7,56 @@
 USERNAME = "kharrigian"
 
 ## Experiment Information
-EXPERIMENT_DIR = "./data/results/depression/lda/clpsych_wolohan/"
-EXPERIMENT_NAME = "k_topics"
+EXPERIMENT_DIR = "./data/results/depression/sample_size/clpsych_wolohan/"
+EXPERIMENT_NAME = "LDA"
 
 ## Choose Base Configuration (Reference for Fixed Parameters)
 BASE_CONFIG = "./scripts/model/train.json"
 
 ## Specifiy Parameter Search Space
 PARAMETER_GRID = {
-    "k_latent":[10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 150, 200]
+    "source":["clpsych"],
+    "target":["wolohan"],
+    "use_plda":[False],
+    "k_latent":[40],
+    "alpha":[0.01],
+    "beta":[0.1],
+    "source_sample_size":[
+                {"train":0, "dev":124},
+                {"train":52, "dev":124},
+                {"train":104, "dev":124},
+                {"train":156, "dev":124},
+                {"train":206, "dev":124},
+                {"train":260, "dev":124},
+                {"train":310, "dev":124},
+                {"train":362, "dev":124},
+                {"train":414, "dev":124},
+                {"train":466, "dev":124},
+                {"train":518, "dev":124}
+    ]
 }
+# PARAMETER_GRID = {
+#     "source":["clpsych"],
+#     "target":["wolohan"],
+#     "use_plda":[True],
+#     "k_latent":[40],
+#     "k_per_label":[20],
+#     "alpha":[0.1],
+#     "beta":[0.1],
+#     "source_sample_size":[
+#                 {"train":0, "dev":124},
+#                 {"train":52, "dev":124},
+#                 {"train":104, "dev":124},
+#                 {"train":156, "dev":124},
+#                 {"train":206, "dev":124},
+#                 {"train":260, "dev":124},
+#                 {"train":310, "dev":124},
+#                 {"train":362, "dev":124},
+#                 {"train":414, "dev":124},
+#                 {"train":466, "dev":124},
+#                 {"train":518, "dev":124}
+#     ]
+# }
 
 ## Training Script Parameters
 PLOT_DOCUMENT_TOPIC = False
@@ -64,6 +104,12 @@ def create_configurations():
         pg_config = deepcopy(base_config)
         ## Update Output Directory
         pg_id = "_".join(f"{x}-{y}" for x, y in pg.items())
+        pg_id = pg_id.replace(":","-").\
+                replace("{","").\
+                replace("}","").\
+                replace("'","").\
+                replace(" ","").\
+                replace(",","")
         pg_outdir = f"{EXPERIMENT_DIR}/{EXPERIMENT_NAME}/{pg_id}/".replace("//","/")
         pg_config["output_dir"] = pg_outdir
         ## Update Parameters

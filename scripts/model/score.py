@@ -5,19 +5,19 @@
 
 ## Choose Directories to Analyze
 COMPARE_DIRS = {
-    "clpsych_wolohan":"./data/results/depression/k_topics/clpsych_wolohan/PLDA/",
-    "wolohan_clpsych":"./data/results/depression/k_topics/wolohan_clpsych/PLDA/"
+    "clpsych_wolohan":"./data/results/depression/sample_size/clpsych_wolohan/PLDA/",
+    "wolohan_clpsych":"./data/results/depression/sample_size/wolohan_clpsych/PLDA/"
 }
 
 ## Plot Directory
-PLOT_DIR = "./plots/classification/k_topics/PLDA/"
+PLOT_DIR = "./plots/classification/sample_size/PLDA/target_sample_size/"
 
 ## Fixed Variation Fields (Average Over)
 MODEL_VARS = ["norm","is_average_representation"]
 
 ## Aggregation Indices
-INDEX_VARS = ["k_per_label","k_latent"]
-COLUMN_VARS = ["use_labels"]
+INDEX_VARS = ["target_sample_size"]
+COLUMN_VARS = []
 
 ## Metrics
 METRIC_VARS = ["f1","precision","recall","avg_precision","auc"]
@@ -62,17 +62,25 @@ scores_df = []
 for exp_id, exp_dir in COMPARE_DIRS.items():
     exp_id_dirs = glob(f"{exp_dir}*/")
     for ed in exp_id_dirs:
+        if v == "source_sample_size" and "target_sample_size" in ed:
+            continue
+        elif v == "target_sample_size" and "source_sample_size" in ed:
+            continue
         ## Load Config
         with open(f"{ed}config.json","r") as the_file:
             ed_config = json.load(the_file)
         ## Load Score Data
         if not os.path.exists(f"{ed}classification/scores.csv"):
+            print(ed)
             continue
         sf_data = pd.read_csv(f"{ed}classification/scores.csv").fillna("None")
         ## Merge Metadata
         sf_data["experiment"] = exp_id
         for v in INDEX_VARS + COLUMN_VARS:
-            sf_data[v] = ed_config[v]
+            if v.endswith("sample_size"):
+                sf_data[v] = ed_config[v]["train"]
+            else:
+                sf_data[v] = ed_config[v]
         ## Cache Scores
         scores_df.append(sf_data)
 scores_df = pd.concat(scores_df).reset_index(drop=True)

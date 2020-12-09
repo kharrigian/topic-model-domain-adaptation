@@ -25,33 +25,39 @@ from mhlib.util.helpers import flatten
 
 ## Data Parameters
 N = 1000
-sigma0 = 3
+sigma_0 = 3
 p_domain = 0.5
 gamma = 20
+
+## Relative Concentrations
 theta = np.array([[0.7, 0.2, 0.1],
                   [0.2, 0.7, 0.1]])
 phi = np.array([[10, 5, 1, 1, 2, 2],
                 [1, 1, 10, 5, 2, 3],
                 [5, 15, 5, 1, 4, 7]])
-coef = np.array([[1, -0.5, 1],
-                 [-0.5, 1, 1]])
+
+## Probability of Target Within Each Domain
+coef = np.array([[1, 0.05, 0.1],
+                 [0.05, 1, 0.1]])
 
 ## Normalization of Parameters
-theta = theta * sigma0
+theta = theta / theta.sum(axis=1,keepdims=True)
 phi = phi / phi.sum(axis=1,keepdims=True)
 
-## Storage
-X_latent = np.zeros((N,coef.shape[1]))
-X = np.zeros((N, phi.shape[1]))
-D = np.zeros(N)
+## Update Concentration
+theta = theta * sigma_0
 
-## Sample 
+## Data Storage
+X_latent = np.zeros((N,coef.shape[1]), dtype=float)
+X = np.zeros((N, phi.shape[1]), dtype=int)
+D = np.zeros(N, dtype=int)
+
+## Sample Procedure
 for n in range(N):
     ## Sample Domain
-    d = int(np.random.rand() < p_domain)
-    D[n] = d
+    D[n] = int(np.random.rand() < p_domain)
     ## Sample Document Topic Mixture (Conditioned on Domain)
-    X_latent[n] = stats.dirichlet(theta[d]).rvs()
+    X_latent[n] = stats.dirichlet(theta[D[n]]).rvs()
     ## Sample Number of Words
     n_d = stats.poisson(gamma).rvs()
     ## Create Document
@@ -85,7 +91,7 @@ lall = np.vstack([l0.coef_, l1.coef_])
 
 ## Plot Marginals
 x = np.linspace(X_latent_normed.min(), X_latent_normed.max())
-fig, ax = plt.subplots(3, 2, sharex=True)
+fig, ax = plt.subplots(3, 2, sharex=True, figsize=(10,5.8))
 for d, marker in zip([0,1],["o","x"]):
     dmask = np.where(D == d)[0]
     for i, c in enumerate(lall[d]):
@@ -116,6 +122,7 @@ train_ind = list(range(int(N*.8)))
 test_ind = list(range(int(N*.8),N))
 
 ## Initialize Models (3 Topics Total)
+n_iter = 500
 lda = tp.LDAModel(k=3,
                   seed=42)
 plda = tp.PLDAModel(latent_topics=1,
@@ -128,12 +135,30 @@ for n in train_ind:
     lda.add_doc(doc_n)
     plda.add_doc(doc_n, [str(D[n])])
 
-## Train Models
-likelihood = np.zeros((500, 2)) * np.nan
-for epoch in range(100):
-    lda.train(1); likelihood[epoch,0] = lda.ll_per_word
-for epoch in range(500):
-    plda.train(1); likelihood[epoch,1] = plda.ll_per_word
+## Generate Documents
+docs_lda = [lda.make_doc(doc_to_str(x)) for x in X]
+docs_plda = [plda.make_doc(doc_to_str(x), [str(D[i])]) for i, x in enumerate(X)]
+
+## MCMC Storage
+likelihood = np.zeros((n_iter, 2)) * np.nan
+theta_lda = np.zeros((n_iter, N, 3)) * np.nan
+phi_lda = np.zeros((n_iter, 3, 6)) * np.nan
+theta_plda = np.zeros((n_iter, N, 3)) * np.nan
+phi_plda = np.zeros((n_iter, 3, 6)) * np.nan
+
+## Train LDA Model
+for epoch in tqdm(range(100), desc="LDA Training"):
+    lda.train(1)
+    likelihood[epoch,0] = lda.ll_per_word
+    theta_lda[epoch] = np.vstack(lda.infer(docs_lda, iter=100)[0])
+    phi_lda[epoch] = np.vstack([lda.get_topic_word_dist(t) for t in range(lda.k)])
+
+## Train PLDA Model
+for epoch in tqdm(range(500), desc="PLDA Training"):
+    plda.train(1)
+    likelihood[epoch,1] = plda.ll_per_word
+    theta_plda[epoch] = np.vstack(plda.infer(docs_plda, iter=100)[0])
+    phi_plda[epoch] = np.vstack([plda.get_topic_word_dist(t) for t in range(plda.k)])
 
 ## Plot Likelihood
 plt.figure(figsize=(10,5.8))
@@ -145,13 +170,34 @@ plt.legend(loc="lower right")
 plt.tight_layout()
 plt.show()
 
-## Get Representations
-X_latent_lda = np.zeros((N, lda.k))
-X_latent_plda = np.zeros((N, plda.k))
-for n in range(N):
-    doc_n = doc_to_str(X[n])
-    X_latent_lda[n], _ = lda.infer(lda.make_doc(doc_n), iter=1000)
-    X_latent_plda[n], _ = plda.infer(plda.make_doc(doc_n, [str(D[n])]), iter=1000)
+## Plot Traces for Phi
+for m, (mphi,mdl) in enumerate(zip([phi_lda, phi_plda],["LDA","PLDA"])):
+    fig, ax = plt.subplots(mphi.shape[1], 1, figsize=(10,5.8), sharex=True)
+    for k in range(mphi.shape[1]):
+        ax[k].plot(mphi[:,k,:])
+        ax[k].set_ylabel("Parameter Value", fontweight="bold")
+    ax[k].set_xlabel("Training Epoch", fontweight="bold")
+    ax[0].set_title(f"{mdl} $\\phi$ Trace", fontweight="bold")
+    fig.tight_layout()
+    plt.show()
+
+## Plot Sample Traces for Theta
+fig, ax = plt.subplots(5, 2, sharex=False, figsize=(10,5.8))
+for d, doc in enumerate(sorted(np.random.choice(N, 5, replace=False))):
+    ax[d,0].plot(theta_lda[:,doc,:])
+    ax[d,1].plot(theta_plda[:,doc,:])
+    for i in range(2):
+        ax[d,i].spines["right"].set_visible(False)
+        ax[d,i].spines["top"].set_visible(False)
+        ax[d,i].set_title(f"Document {doc} $\\theta$", loc="left", fontstyle="italic")
+for m, mdl in enumerate(["LDA","PLDA"]):
+    ax[-1, m].set_xlabel(f"{mdl} Training Epoch", fontweight="bold")
+fig.tight_layout()
+plt.show()
+
+## Get Final Representations
+X_latent_lda = np.vstack(lda.infer(docs_lda, iter=1000, together=True)[0])
+X_latent_plda = np.vstack(plda.infer(docs_plda, iter=1000, together=True)[0])
 
 ## Isolate Latent Variables and Normalize
 X_latent_plda = X_latent_plda[:,-plda.latent_topics:]

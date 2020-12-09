@@ -63,7 +63,7 @@ for n in range(N):
         ## Cache
         X[n,w]+=1
     
-## Standardize X
+## Standardize Latent X
 X_latent_normed = np.zeros_like(X_latent)
 X_latent_normed[D==0] = (X_latent[D==0] - X_latent[D==0].mean(axis=0)) / X_latent[D==0].std(axis=0)
 X_latent_normed[D==1] = (X_latent[D==1] - X_latent[D==1].mean(axis=0)) / X_latent[D==1].std(axis=0)
@@ -104,7 +104,6 @@ for i, t in enumerate(["Source Domain","Target Domain"]):
 fig.tight_layout()
 plt.show()
 
-
 ######################
 ### Fit Topic Models
 ######################
@@ -116,7 +115,7 @@ doc_to_str = lambda x: flatten([[str(i)]*int(j) for i, j in enumerate(x)])
 train_ind = list(range(int(N*.8)))
 test_ind = list(range(int(N*.8),N))
 
-## Initialize Models
+## Initialize Models (3 Topics Total)
 lda = tp.LDAModel(k=3,
                   seed=42)
 plda = tp.PLDAModel(latent_topics=1,
@@ -136,8 +135,14 @@ for epoch in range(100):
 for epoch in range(500):
     plda.train(1); likelihood[epoch,1] = plda.ll_per_word
 
-plt.plot(likelihood[:,0])
-plt.plot(likelihood[:,1])
+## Plot Likelihood
+plt.figure(figsize=(10,5.8))
+plt.plot(likelihood[:,0], label="LDA")
+plt.plot(likelihood[:,1], label="PLDA")
+plt.xlabel("Training Epoch", fontweight="bold")
+plt.ylabel("Log Likelihood Per Word", fontweight="bold")
+plt.legend(loc="lower right")
+plt.tight_layout()
 plt.show()
 
 ## Get Representations
@@ -145,24 +150,32 @@ X_latent_lda = np.zeros((N, lda.k))
 X_latent_plda = np.zeros((N, plda.k))
 for n in range(N):
     doc_n = doc_to_str(X[n])
-    X_latent_lda[n], _ = lda.infer(lda.make_doc(doc_n),iter=1000)
-    X_latent_plda[n], _ = plda.infer(plda.make_doc(doc_n, [str(D[n])]),iter=1000)
+    X_latent_lda[n], _ = lda.infer(lda.make_doc(doc_n), iter=1000)
+    X_latent_plda[n], _ = plda.infer(plda.make_doc(doc_n, [str(D[n])]), iter=1000)
 
 ## Isolate Latent Variables and Normalize
 X_latent_plda = X_latent_plda[:,-plda.latent_topics:]
 
 ## Fit Model
-lr_lda = LogisticRegression(); lr_lda.fit(X_latent_lda[train_ind], y[train_ind])
-lr_plda = LogisticRegression(); lr_plda.fit(X_latent_plda[train_ind], y[train_ind])
+source_train_ind = sorted(set(train_ind) & set(np.where(D==0)[0]))
+lr_lda = LogisticRegression(); lr_lda.fit(X_latent_lda[source_train_ind], y[source_train_ind])
+lr_plda = LogisticRegression(); lr_plda.fit(X_latent_plda[source_train_ind], y[source_train_ind])
 
 ## Make Test Predictions
-y_test_lda = lr_lda.predict_proba(X_latent_lda[test_ind])[:,1]
-y_test_plda = lr_plda.predict_proba(X_latent_plda[test_ind])[:,1]
+y_test_lda = lr_lda.predict_proba(X_latent_lda)[:,1]
+y_test_plda = lr_plda.predict_proba(X_latent_plda)[:,1]
 
 ## Score Model
-lda_f1 = metrics.f1_score(y[test_ind], y_test_lda>0.5)
-plda_f1 = metrics.f1_score(y[test_ind], y_test_plda>0.5)
-lda_auc = metrics.roc_auc_score(y[test_ind], y_test_lda)
-plda_auc = metrics.roc_auc_score(y[test_ind], y_test_plda)
-print("LDA: AUC={:.4f}, F1={:.4f}".format(lda_auc, lda_f1))
-print("PLDA: AUC={:.4f}, F1={:.4f}".format(plda_auc, plda_f1))
+print("~~~~~~ Test Set Performance ~~~~~~")
+for d, domain in enumerate(["Source","Target","Overall"]):
+    if d == 2:
+        domain_test_ind = test_ind
+    else:
+        domain_test_ind = sorted(set(test_ind) & set(np.where(D==d)[0]))
+    lda_f1 = metrics.f1_score(y[domain_test_ind], y_test_lda[domain_test_ind]>0.5)
+    plda_f1 = metrics.f1_score(y[domain_test_ind], y_test_plda[domain_test_ind]>0.5)
+    lda_auc = metrics.roc_auc_score(y[domain_test_ind], y_test_lda[domain_test_ind])
+    plda_auc = metrics.roc_auc_score(y[domain_test_ind], y_test_plda[domain_test_ind])
+    print(domain,"Domain")
+    print("LDA:  AUC={:.4f}, F1={:.4f}".format(lda_auc, lda_f1))
+    print("PLDA: AUC={:.4f}, F1={:.4f}".format(plda_auc, plda_f1))

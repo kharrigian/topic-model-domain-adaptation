@@ -1,5 +1,26 @@
 
 ######################
+### Configuration
+######################
+
+## Specify Data Parameters
+N = 1000 ## Sample Size
+sigma_0 = 3 ## Theta Multiplier
+p_domain = 0.5 ## Domain Balance [0,1]
+gamma = 20 ## Poisson Parameter (Words per Document)
+V = 100 ## Vocabulary Size
+beta = 1 / V
+theta = [[0.7, 0.2, 0.1], ## Relative Topic Concentrations
+         [0.2, 0.7, 0.1]]
+coef = [[1, 0.05, 0.1], ## Linear Model for Each Domain
+        [0.05, 1, 0.1]]
+random_state = None ## Random State
+
+## Topic Model Parameters
+n_iter_lda = 250
+n_iter_plda = 500
+
+######################
 ### Imports
 ######################
 
@@ -23,22 +44,16 @@ from mhlib.util.helpers import flatten
 ### Data Generating Process
 ######################
 
-## Data Parameters
-N = 1000
-sigma_0 = 3
-p_domain = 0.5
-gamma = 20
+## Set Random State
+if random_state is not None:
+    np.random.seed(random_state)
 
-## Relative Concentrations
-theta = np.array([[0.7, 0.2, 0.1],
-                  [0.2, 0.7, 0.1]])
-phi = np.array([[10, 5, 1, 1, 2, 2],
-                [1, 1, 10, 5, 2, 3],
-                [5, 15, 5, 1, 4, 7]])
+## Convert Data Types
+theta = np.array(theta)
+coef = np.array(coef)
 
-## Probability of Target Within Each Domain
-coef = np.array([[1, 0.05, 0.1],
-                 [0.05, 1, 0.1]])
+## Generate Topic-Word Distributions
+phi = stats.dirichlet([beta]*V).rvs(theta.shape[1])
 
 ## Normalization of Parameters
 theta = theta / theta.sum(axis=1,keepdims=True)
@@ -122,7 +137,6 @@ train_ind = list(range(int(N*.8)))
 test_ind = list(range(int(N*.8),N))
 
 ## Initialize Models (3 Topics Total)
-n_iter = 500
 lda = tp.LDAModel(k=3,
                   seed=42)
 plda = tp.PLDAModel(latent_topics=1,
@@ -135,26 +149,34 @@ for n in train_ind:
     lda.add_doc(doc_n)
     plda.add_doc(doc_n, [str(D[n])])
 
+## Initialize Sampler
+lda.train(1)
+plda.train()
+
+## Update Parameters based on Corpus
+V = lda.num_vocabs
+
 ## Generate Documents
 docs_lda = [lda.make_doc(doc_to_str(x)) for x in X]
 docs_plda = [plda.make_doc(doc_to_str(x), [str(D[i])]) for i, x in enumerate(X)]
 
 ## MCMC Storage
+n_iter = max(n_iter_lda, n_iter_plda)
 likelihood = np.zeros((n_iter, 2)) * np.nan
 theta_lda = np.zeros((n_iter, N, 3)) * np.nan
-phi_lda = np.zeros((n_iter, 3, 6)) * np.nan
 theta_plda = np.zeros((n_iter, N, 3)) * np.nan
-phi_plda = np.zeros((n_iter, 3, 6)) * np.nan
+phi_lda = np.zeros((n_iter, 3, V)) * np.nan
+phi_plda = np.zeros((n_iter, 3, V)) * np.nan
 
 ## Train LDA Model
-for epoch in tqdm(range(100), desc="LDA Training"):
+for epoch in tqdm(range(n_iter_lda), desc="LDA Training"):
     lda.train(1)
     likelihood[epoch,0] = lda.ll_per_word
     theta_lda[epoch] = np.vstack(lda.infer(docs_lda, iter=100)[0])
     phi_lda[epoch] = np.vstack([lda.get_topic_word_dist(t) for t in range(lda.k)])
 
 ## Train PLDA Model
-for epoch in tqdm(range(500), desc="PLDA Training"):
+for epoch in tqdm(range(n_iter_plda), desc="PLDA Training"):
     plda.train(1)
     likelihood[epoch,1] = plda.ll_per_word
     theta_plda[epoch] = np.vstack(plda.infer(docs_plda, iter=100)[0])

@@ -599,91 +599,92 @@ def main():
     y_dev_t = y_dev[target_dev_ind]
     ## Cycle Through Types of Preprocessing, Training, and Inference
     all_scores = []
-    for average_representation in config.averaging:
-        for norm in config.norm:
-            LOGGER.info("Feature Set: Average Representation ({}), Norm ({})".format(average_representation, norm))
-            if average_representation:
-                ## Average
-                X_train = theta_train_latent[dev_infer_mask].mean(axis=0)
-                X_dev = theta_dev_latent[dev_infer_mask].mean(axis=0)
-                ## Normalization (If Desired)
-                if norm:
-                    X_train = normalize(X_train, norm=norm, axis=1)
-                    X_dev = normalize(X_dev, norm=norm, axis=1)
-                ## Reshape Data
-                X_train = X_train.reshape((1,X_train.shape[0],X_train.shape[1]))
-                X_dev = X_dev.reshape((1,X_dev.shape[0], X_dev.shape[1]))
-            else:
-                ## Remove Burn In
-                X_train = theta_train_latent[dev_infer_mask].copy()
-                X_dev = theta_dev_latent[dev_infer_mask].copy()
-                ## Normalization (If Desired)
-                if norm:
-                    X_train = np.stack([normalize(x, norm=norm, axis=1) for x in X_train])
-                    X_dev = np.stack([normalize(x, norm=norm, axis=1) for x in X_dev])
-            ## Training
-            models = []
-            for x in tqdm(X_train, desc="Fitting Models", file=sys.stdout):
-                ## Fit Classifier
-                logit = LogisticRegression(C=config.C,
-                                           random_state=42,
-                                           max_iter=config.max_iter,
-                                           solver='lbfgs')
-                logit.fit(x[source_train_ind], y_train[source_train_ind])
-                ## Get Predictions
-                models.append(logit)
-            ## Inference
-            y_pred_train = np.zeros((len(models), X_train.shape[0], y_train.shape[0]))
-            y_pred_dev = np.zeros((len(models), X_dev.shape[0], y_dev.shape[0]))
-            for m, mdl in tqdm(enumerate(models), position=0, desc="Making Predictions", total=len(models), file=sys.stdout):
-                y_pred_train[m] = mdl.predict_proba(X_train[m])[:,1]
-                y_pred_dev[m] = mdl.predict_proba(X_dev[m])[:,1]
-            ## ROC Curves
-            LOGGER.info("Plotting ROC/AUC and Scoring Predictions")
-            auc_scores = [[[],[]],[[],[]]]
-            fig, ax = plt.subplots(2, 2, figsize=(10,5.8), sharex=True, sharey=True)
-            for m, mdl_pred in tqdm(enumerate(y_pred_train), total=y_pred_train.shape[0], desc="Train Scoring", file=sys.stdout):
-                for l, latent_pred in enumerate(mdl_pred):
-                    for d, dind in enumerate([source_train_ind, target_train_ind]):
-                        d_l_pred = latent_pred[dind]
-                        d_l_true = y_train[dind]
-                        if len(d_l_pred) == 0:
-                            continue
-                        tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
-                        auc_scores[d][0].append(dl_scores.get("auc",0))
-                        dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"train"})
-                        dl_scores.update({"norm":norm, "is_average_representation":average_representation})
-                        all_scores.append(dl_scores)
-                        ax[d][0].plot(tpr, fpr, alpha=0.01 if not average_representation else .8, color=f"navy", linewidth=0.5 if not average_representation else 1)
-            for m, mdl_pred in tqdm(enumerate(y_pred_dev), total=y_pred_dev.shape[0], desc="Development Scoring", file=sys.stdout):
-                for l, latent_pred in enumerate(mdl_pred):
-                    for d, dind in enumerate([source_dev_ind, target_dev_ind]):
-                        d_l_pred = latent_pred[dind]
-                        d_l_true = y_dev[dind]
-                        if len(d_l_pred) == 0:
-                            continue
-                        tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
-                        dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"development"})
-                        dl_scores.update({"norm":norm, "is_average_representation":average_representation})
-                        all_scores.append(dl_scores)
-                        auc_scores[d][1].append(dl_scores.get("auc",0))
-                        ax[d][1].plot(tpr, fpr, alpha=0.01 if not average_representation else .8, color=f"navy", linewidth=0.5 if not average_representation else 1)
-            for i, domain in enumerate(["Source","Target"]):
-                ax[-1,i].set_xlabel("True Positive Rate", fontweight="bold")
-                ax[i, 0].set_ylabel("False Positive Rate", fontweight="bold")
-                for j, group in enumerate(["Train","Development"]):
-                    ax[i,j].plot([0,1],[0,1],color="black",linestyle="--")
-                    ax[i,j].spines["top"].set_visible(False)
-                    ax[i,j].spines["right"].set_visible(False)
-                    ax[i,j].set_title(f"{domain} {group}", fontweight="bold")
-                    if len(auc_scores[i][j]) > 0:
-                        ax[i,j].plot([],[],color="navy",label="Mean AUC: {:.3f}".format(np.mean(auc_scores[i][j])))
-                        ax[i,j].legend(loc="lower right")
-                    ax[i,j].set_xlim(0,1)
-                    ax[i,j].set_ylim(0,1)
-            fig.tight_layout()
-            fig.savefig(f"{config.output_dir}/classification/roc_auc_{average_representation}_{norm}.png",dpi=300)
-            plt.close(fig)
+    for C in config.C:
+        for average_representation in config.averaging:
+            for norm in config.norm:
+                LOGGER.info("Feature Set: Average Representation ({}), Norm ({}), Regularization ({})".format(average_representation, norm, C))
+                if average_representation:
+                    ## Average
+                    X_train = theta_train_latent[dev_infer_mask].mean(axis=0)
+                    X_dev = theta_dev_latent[dev_infer_mask].mean(axis=0)
+                    ## Normalization (If Desired)
+                    if norm:
+                        X_train = normalize(X_train, norm=norm, axis=1)
+                        X_dev = normalize(X_dev, norm=norm, axis=1)
+                    ## Reshape Data
+                    X_train = X_train.reshape((1,X_train.shape[0],X_train.shape[1]))
+                    X_dev = X_dev.reshape((1,X_dev.shape[0], X_dev.shape[1]))
+                else:
+                    ## Remove Burn In
+                    X_train = theta_train_latent[dev_infer_mask].copy()
+                    X_dev = theta_dev_latent[dev_infer_mask].copy()
+                    ## Normalization (If Desired)
+                    if norm:
+                        X_train = np.stack([normalize(x, norm=norm, axis=1) for x in X_train])
+                        X_dev = np.stack([normalize(x, norm=norm, axis=1) for x in X_dev])
+                ## Training
+                models = []
+                for x in tqdm(X_train, desc="Fitting Models", file=sys.stdout):
+                    ## Fit Classifier
+                    logit = LogisticRegression(C=C,
+                                            random_state=42,
+                                            max_iter=config.max_iter,
+                                            solver='lbfgs')
+                    logit.fit(x[source_train_ind], y_train[source_train_ind])
+                    ## Get Predictions
+                    models.append(logit)
+                ## Inference
+                y_pred_train = np.zeros((len(models), X_train.shape[0], y_train.shape[0]))
+                y_pred_dev = np.zeros((len(models), X_dev.shape[0], y_dev.shape[0]))
+                for m, mdl in tqdm(enumerate(models), position=0, desc="Making Predictions", total=len(models), file=sys.stdout):
+                    y_pred_train[m] = mdl.predict_proba(X_train[m])[:,1]
+                    y_pred_dev[m] = mdl.predict_proba(X_dev[m])[:,1]
+                ## ROC Curves
+                LOGGER.info("Plotting ROC/AUC and Scoring Predictions")
+                auc_scores = [[[],[]],[[],[]]]
+                fig, ax = plt.subplots(2, 2, figsize=(10,5.8), sharex=True, sharey=True)
+                for m, mdl_pred in tqdm(enumerate(y_pred_train), total=y_pred_train.shape[0], desc="Train Scoring", file=sys.stdout):
+                    for l, latent_pred in enumerate(mdl_pred):
+                        for d, dind in enumerate([source_train_ind, target_train_ind]):
+                            d_l_pred = latent_pred[dind]
+                            d_l_true = y_train[dind]
+                            if len(d_l_pred) == 0:
+                                continue
+                            tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
+                            auc_scores[d][0].append(dl_scores.get("auc",0))
+                            dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"train"})
+                            dl_scores.update({"norm":norm, "is_average_representation":average_representation, "C":C})
+                            all_scores.append(dl_scores)
+                            ax[d][0].plot(tpr, fpr, alpha=0.01 if not average_representation else .8, color=f"navy", linewidth=0.5 if not average_representation else 1)
+                for m, mdl_pred in tqdm(enumerate(y_pred_dev), total=y_pred_dev.shape[0], desc="Development Scoring", file=sys.stdout):
+                    for l, latent_pred in enumerate(mdl_pred):
+                        for d, dind in enumerate([source_dev_ind, target_dev_ind]):
+                            d_l_pred = latent_pred[dind]
+                            d_l_true = y_dev[dind]
+                            if len(d_l_pred) == 0:
+                                continue
+                            tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
+                            dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"development"})
+                            dl_scores.update({"norm":norm, "is_average_representation":average_representation,"C":C})
+                            all_scores.append(dl_scores)
+                            auc_scores[d][1].append(dl_scores.get("auc",0))
+                            ax[d][1].plot(tpr, fpr, alpha=0.01 if not average_representation else .8, color=f"navy", linewidth=0.5 if not average_representation else 1)
+                for i, domain in enumerate(["Source","Target"]):
+                    ax[-1,i].set_xlabel("True Positive Rate", fontweight="bold")
+                    ax[i, 0].set_ylabel("False Positive Rate", fontweight="bold")
+                    for j, group in enumerate(["Train","Development"]):
+                        ax[i,j].plot([0,1],[0,1],color="black",linestyle="--")
+                        ax[i,j].spines["top"].set_visible(False)
+                        ax[i,j].spines["right"].set_visible(False)
+                        ax[i,j].set_title(f"{domain} {group}", fontweight="bold")
+                        if len(auc_scores[i][j]) > 0:
+                            ax[i,j].plot([],[],color="navy",label="Mean AUC: {:.3f}".format(np.mean(auc_scores[i][j])))
+                            ax[i,j].legend(loc="lower right")
+                        ax[i,j].set_xlim(0,1)
+                        ax[i,j].set_ylim(0,1)
+                fig.tight_layout()
+                fig.savefig(f"{config.output_dir}/classification/roc_auc_{average_representation}_{norm}.png",dpi=300)
+                plt.close(fig)
     ## Format Scores
     LOGGER.info("Caching Scores")
     all_scores_df = pd.DataFrame(all_scores)

@@ -5,12 +5,12 @@
 
 ## Choose Directories to Analyze
 COMPARE_DIRS = {
-    "clpsych_wolohan":"./data/results/depression/sample_size/clpsych_wolohan/PLDA/",
-    "wolohan_clpsych":"./data/results/depression/sample_size/wolohan_clpsych/PLDA/"
+    "clpsych_wolohan":"./data/results/depression/sample_size/clpsych_wolohan/LDA/",
+    "wolohan_clpsych":"./data/results/depression/sample_size/wolohan_clpsych/LDA/"
 }
 
 ## Plot Directory
-PLOT_DIR = "./plots/classification/sample_size/PLDA/target_sample_size/"
+PLOT_DIR = "./plots/classification/sample_size/LDA/target_sample_size/"
 
 ## Fixed Variation Fields (Average Over)
 MODEL_VARS = ["norm","is_average_representation"]
@@ -62,9 +62,9 @@ scores_df = []
 for exp_id, exp_dir in COMPARE_DIRS.items():
     exp_id_dirs = glob(f"{exp_dir}*/")
     for ed in exp_id_dirs:
-        if v == "source_sample_size" and "target_sample_size" in ed:
+        if "source_sample_size" in INDEX_VARS and "target_sample_size" in ed:
             continue
-        elif v == "target_sample_size" and "source_sample_size" in ed:
+        elif "target_sample_size" in INDEX_VARS and "source_sample_size" in ed:
             continue
         ## Load Config
         with open(f"{ed}config.json","r") as the_file:

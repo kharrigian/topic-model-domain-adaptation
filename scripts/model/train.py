@@ -402,6 +402,9 @@ def main():
             _ = os.makedirs(ddir)
     ## Cache Configuration
     _ = os.system(f"cp {args.config} {config.output_dir}/config.json")
+    ## Set Random Seed
+    if config.random_seed is not None:
+        np.random.seed(config.random_seed)
     ###################
     ### Data Preparation
     ###################
@@ -453,7 +456,7 @@ def main():
                              min_df=config.min_doc_freq,
                              rm_top=config.rm_top,
                              corpus=train_corpus,
-                             seed=42)
+                             seed=config.random_seed)
     else:
         model = tp.LDAModel(alpha=config.alpha,
                             eta=config.beta,
@@ -461,7 +464,7 @@ def main():
                             min_df=config.min_doc_freq,
                             rm_top=config.rm_top,
                             corpus=train_corpus,
-                            seed=42)
+                            seed=config.random_seed)
     ## Initialize Sampler
     model.train(1, workers=8)
     ## Generate Development Documents
@@ -491,12 +494,12 @@ def main():
         ll[epoch] = model.ll_per_word
         ## Cache Parameters
         phi[epoch] = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
-        epoch_theta_train = [model.infer(d,iter=1)[0] for d in model.docs]
+        epoch_theta_train = [model.infer(d,iter=config.n_sample)[0] for d in model.docs]
         if not use_source or not use_target:
-            epoch_theta_train = epoch_theta_train + model.infer(unused_train_docs,iter=1,together=True)[0]
+            epoch_theta_train = epoch_theta_train + model.infer(unused_train_docs,iter=config.n_sample,together=True)[0]
         theta_train[epoch] = np.vstack(epoch_theta_train)
         if epoch % config.dev_sample_rate == 0 and epoch > config.n_burn:
-            theta_dev[epoch] = np.vstack(model.infer(dev_docs,iter=1,together=True)[0])
+            theta_dev[epoch] = np.vstack(model.infer(dev_docs,iter=config.n_sample,together=True)[0])
     ## Isolate Non-Zero Dev Distributions (e.g. Sample Rate + Burn In)
     dev_infer_mask = [i for i, j in enumerate(theta_dev) if not (j==0).all().all()]
     ## Cache Model Summary
@@ -596,8 +599,8 @@ def main():
     y_dev_t = y_dev[target_dev_ind]
     ## Cycle Through Types of Preprocessing, Training, and Inference
     all_scores = []
-    for average_representation in [False, True]:
-        for norm in [None, "l1","l2","max"]:
+    for average_representation in config.averaging:
+        for norm in config.norm:
             LOGGER.info("Feature Set: Average Representation ({}), Norm ({})".format(average_representation, norm))
             if average_representation:
                 ## Average

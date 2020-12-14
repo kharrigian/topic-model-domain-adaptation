@@ -496,10 +496,13 @@ def main():
         phi[epoch] = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
         epoch_theta_train = [model.infer(d,iter=config.n_sample)[0] for d in model.docs]
         if not use_source or not use_target:
-            epoch_theta_train = epoch_theta_train + model.infer(unused_train_docs,iter=config.n_sample,together=True)[0]
+            if epoch % config.dev_sample_rate == 0 and epoch > config.n_burn:
+                epoch_theta_train = epoch_theta_train + model.infer(unused_train_docs,iter=config.n_sample,together=False)[0]
+            else:
+                epoch_theta_train = epoch_theta_train + [np.zeros(K) * np.nan for _ in range(len(unused_train_docs))]
         theta_train[epoch] = np.vstack(epoch_theta_train)
         if epoch % config.dev_sample_rate == 0 and epoch > config.n_burn:
-            theta_dev[epoch] = np.vstack(model.infer(dev_docs,iter=config.n_sample,together=True)[0])
+            theta_dev[epoch] = np.vstack(model.infer(dev_docs,iter=config.n_sample,together=False)[0])
     ## Isolate Non-Zero Dev Distributions (e.g. Sample Rate + Burn In)
     dev_infer_mask = [i for i, j in enumerate(theta_dev) if not (j==0).all().all()]
     ## Cache Model Summary

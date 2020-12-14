@@ -3,60 +3,28 @@
 ### Configuration
 #########################
 
-## Grid Username
+## Grid Parameters
 USERNAME = "kharrigian"
+MEMORY = 42
 
 ## Experiment Information
-EXPERIMENT_DIR = "./data/results/depression/sample_size/clpsych_wolohan/"
-EXPERIMENT_NAME = "LDA"
+EXPERIMENT_DIR = "./data/results/depression/prior/wolohan_clpsych/"
+EXPERIMENT_NAME = "PLDA"
 
 ## Choose Base Configuration (Reference for Fixed Parameters)
 BASE_CONFIG = "./scripts/model/train.json"
 
 ## Specifiy Parameter Search Space
 PARAMETER_GRID = {
-    "source":["clpsych"],
-    "target":["wolohan"],
-    "use_plda":[False],
-    "k_latent":[40],
-    "alpha":[0.01],
-    "beta":[0.1],
-    "source_sample_size":[
-                {"train":0, "dev":124},
-                {"train":52, "dev":124},
-                {"train":104, "dev":124},
-                {"train":156, "dev":124},
-                {"train":206, "dev":124},
-                {"train":260, "dev":124},
-                {"train":310, "dev":124},
-                {"train":362, "dev":124},
-                {"train":414, "dev":124},
-                {"train":466, "dev":124},
-                {"train":518, "dev":124}
-    ]
+    "source":["wolohan"],
+    "target":["clpsych"],
+    "use_plda":[True],
+    "k_latent":[50],
+    "k_per_label":[20],
+    "alpha":[0.001, 0.01, 0.1, 1, 5, 10, 50, 100],
+    "beta":[0.001, 0.01, 0.1, 1, 5, 10, 50, 100],
 }
-# PARAMETER_GRID = {
-#     "source":["clpsych"],
-#     "target":["wolohan"],
-#     "use_plda":[True],
-#     "k_latent":[40],
-#     "k_per_label":[20],
-#     "alpha":[0.1],
-#     "beta":[0.1],
-#     "source_sample_size":[
-#                 {"train":0, "dev":124},
-#                 {"train":52, "dev":124},
-#                 {"train":104, "dev":124},
-#                 {"train":156, "dev":124},
-#                 {"train":206, "dev":124},
-#                 {"train":260, "dev":124},
-#                 {"train":310, "dev":124},
-#                 {"train":362, "dev":124},
-#                 {"train":414, "dev":124},
-#                 {"train":466, "dev":124},
-#                 {"train":518, "dev":124}
-#     ]
-# }
+
 
 ## Training Script Parameters
 PLOT_DOCUMENT_TOPIC = False
@@ -137,7 +105,7 @@ def write_bash_script(temp_dir,
     #$ -e /home/kharrigian/gridlogs/python/{}.err
     #$ -o /home/kharrigian/gridlogs/python/{}.out
     #$ -pe smp 8
-    #$ -l 'gpu=0,mem_free=32g,ram_free=32g'
+    #$ -l 'gpu=0,mem_free={}g,ram_free={}g'
 
     ## Move to Home Directory (Place Where Virtual Environments Live)
     cd /home/kharrigian/
@@ -153,6 +121,8 @@ def write_bash_script(temp_dir,
     {} \
     """.format(f"{EXPERIMENT_NAME}_{config_id}",
                f"{EXPERIMENT_NAME}_{config_id}",
+               MEMORY,
+               MEMORY,
                config_filename,
                {True:"--plot_document_topic",False:""}.get(PLOT_DOCUMENT_TOPIC),
                {True:"--plot_topic_word",False:""}.get(PLOT_TOPIC_WORD)

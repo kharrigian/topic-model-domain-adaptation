@@ -545,6 +545,10 @@ y_train_t = y_train[target_train_ind]
 theta_train_post_s = theta_train[n_burn:, source_train_ind, :]
 theta_train_post_t = theta_train[n_burn:, target_train_ind, :]
 
+## Average Topic Weights
+s_avg_dist = theta_train_post_s.sum(axis=0).sum(axis=0) / (theta_train_post_s.shape[0] * theta_train_post_s.shape[1])
+t_avg_dist = theta_train_post_t.sum(axis=0).sum(axis=0) / (theta_train_post_t.shape[0] * theta_train_post_t.shape[1])
+
 ## Train Classifiers and Cache Coefficients
 coefs_source = np.zeros((theta_train_post_s.shape[0], theta_train_post_s.shape[2]))
 coefs_target = np.zeros((theta_train_post_t.shape[0], theta_train_post_t.shape[2]))
@@ -558,14 +562,27 @@ for m, (x_source, x_target) in tqdm(enumerate(zip(theta_train_post_s, theta_trai
 q_coef_source = np.percentile(coefs_source, q=[2.5,50,97.5], axis=0)
 q_coef_target = np.percentile(coefs_target, q=[2.5,50,97.5], axis=0)
 fig, ax = plt.subplots(figsize=(10,5.8))
+m = ax.scatter(q_coef_source[1],
+               q_coef_target[1],
+               c=s_avg_dist - t_avg_dist,
+               cmap=plt.cm.coolwarm,
+               s=75)
 ax.errorbar(q_coef_source[1],
             q_coef_target[1],
             xerr=np.vstack([q_coef_source[1]-q_coef_source[0],q_coef_source[2]-q_coef_source[1]]),
             yerr=np.vstack([q_coef_target[1]-q_coef_target[0],q_coef_target[2]-q_coef_target[1]]),
-            fmt="o",
-            markersize=10,
+            fmt="none",
+            marker="none",
+            zorder=0,
+            markersize=20,
             alpha=0.5,
             label="Topic Dimension")
+cbar = fig.colorbar(m)
+cbar.set_label("Difference in Topic Prevalence\n(Source - Target)",
+               fontweight="bold",
+               labelpad=10,
+               fontsize=18)
+cbar.ax.tick_params(labelsize=16) 
 xlim = ax.get_xlim(); xlim = [-max(list(map(abs, xlim))), max(list(map(abs, xlim)))]
 ylim = ax.get_ylim(); ylim = [-max(list(map(abs, ylim))), max(list(map(abs, ylim)))]
 ax.fill_between([0, xlim[1]], [ylim[0], ylim[0]], [0, 0], color="gray", alpha=0.2, label="Domain Disagreement")

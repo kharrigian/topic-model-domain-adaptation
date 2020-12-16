@@ -68,8 +68,11 @@ def standardize(X_latent,
     """
     ## Standardize Latent X
     X_latent_normed = np.zeros_like(X_latent)
-    X_latent_normed[D==0] = (X_latent[D==0] - X_latent[D==0].mean(axis=0)) / X_latent[D==0].std(axis=0)
-    X_latent_normed[D==1] = (X_latent[D==1] - X_latent[D==1].mean(axis=0)) / X_latent[D==1].std(axis=0)
+    for d in [0, 1]:
+        X_latent_normed[D==d] = np.divide(X_latent[D==d] - X_latent[D==d].mean(axis=0),
+                                          X_latent[D==d].std(axis=0),
+                                          out=np.zeros_like(X_latent[D==d]),
+                                          where=X_latent[D==d].std(axis=0)>0)
     return X_latent_normed
 
 def data_generating_process(N,

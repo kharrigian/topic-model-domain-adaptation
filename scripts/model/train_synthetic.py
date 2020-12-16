@@ -229,6 +229,9 @@ def main():
     ## Output
     if config.output_dir is not None and not os.path.exists(config.output_dir):
         _ = os.makedirs(config.output_dir)
+    ## Cache Config
+    if config.output_dir is not None and config.run_id is not None:
+        _ = os.system(f"cp {args.config} {config.output_dir}/{config.run_id}.config.json")
     ## Set Random State
     if config.random_state is not None:
         np.random.seed(config.random_state)

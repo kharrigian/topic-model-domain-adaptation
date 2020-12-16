@@ -5,8 +5,8 @@
 
 ## Choose Directories to Analyze
 COMPARE_DIRS = {
-    "clpsych_wolohan":"./data/results/depression/sample_size/clpsych_wolohan/LDA/",
-    "wolohan_clpsych":"./data/results/depression/sample_size/wolohan_clpsych/LDA/"
+    "LDA":"./data/results/depression/k_latent/wolohan_clpsych/LDA/",
+    "PLDA":"./data/results/depression/k_latent/wolohan_clpsych/PLDA/",
 }
 
 ## Plot Directory
@@ -16,7 +16,7 @@ PLOT_DIR = "./plots/classification/sample_size/LDA/target_sample_size/"
 MODEL_VARS = ["norm","is_average_representation"]
 
 ## Aggregation Indices
-INDEX_VARS = ["target_sample_size"]
+INDEX_VARS = ["alpha","beta","k_latent","k_per_label"]
 COLUMN_VARS = []
 
 ## Metrics
@@ -62,10 +62,6 @@ scores_df = []
 for exp_id, exp_dir in COMPARE_DIRS.items():
     exp_id_dirs = glob(f"{exp_dir}*/")
     for ed in exp_id_dirs:
-        if "source_sample_size" in INDEX_VARS and "target_sample_size" in ed:
-            continue
-        elif "target_sample_size" in INDEX_VARS and "source_sample_size" in ed:
-            continue
         ## Load Config
         with open(f"{ed}config.json","r") as the_file:
             ed_config = json.load(the_file)
@@ -76,9 +72,14 @@ for exp_id, exp_dir in COMPARE_DIRS.items():
         sf_data = pd.read_csv(f"{ed}classification/scores.csv").fillna("None")
         ## Merge Metadata
         sf_data["experiment"] = exp_id
-        for v in INDEX_VARS + COLUMN_VARS:
+        for v in ed_config.keys():
             if v.endswith("sample_size"):
                 sf_data[v] = ed_config[v]["train"]
+            elif v.endswith("class_ratio"):
+                sf_data[f"{v}_train"] = str(ed_config[v]["train"])
+                sf_data[f"{v}_dev"] = str(ed_config[v]["dev"])
+            elif v in ["C","averaging","norm","random_seed","max_iter"]:
+                continue
             else:
                 sf_data[v] = ed_config[v]
         ## Cache Scores

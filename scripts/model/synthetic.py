@@ -151,7 +151,7 @@ for n in train_ind:
 
 ## Initialize Sampler
 lda.train(1)
-plda.train()
+plda.train(1)
 
 ## Update Parameters based on Corpus
 V = lda.num_vocabs

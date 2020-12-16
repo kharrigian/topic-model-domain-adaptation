@@ -8,7 +8,7 @@ output_dir = "./plots/distributions/clpsych_wolohan/"
 
 ## Choose Source and Target Datasets
 source = "clpsych"
-target =  "wolohan"
+target = "wolohan"
 
 ## Analysis Parameters
 min_term_freq = 5
@@ -55,6 +55,13 @@ DEPRESSION_DATA_DIR = f"./data/raw/depression/"
 ## Plot Directory
 if not os.path.exists(output_dir):
     _ = os.makedirs(output_dir)
+
+## Names
+DATASET_NAMES = {
+    "clpsych":"CLPsych",
+    "wolohan":"Topic-Restricted",
+    "multitask":"Multitask"
+}
 
 #################
 ### Helpers
@@ -347,16 +354,17 @@ for i, row in enumerate(v_overlap):
 for i, l in enumerate(["Frequency","Users"]):
     ax[i].set_xscale("symlog")
     ax[i].set_yscale("symlog")
-    ax[i].set_xlabel(f"Source {l}", fontweight="bold")
-    ax[i].set_ylabel(f"Target {l}", fontweight="bold")
+    ax[i].set_xlabel("{} {}".format(DATASET_NAMES[source], l), fontweight="bold")
+    ax[i].set_ylabel("{} {}".format(DATASET_NAMES[target], l), fontweight="bold")
     ax[i].legend(loc="upper left", frameon=True)
 for i in range(3):
     ax[i].spines["top"].set_visible(False)
     ax[i].spines["right"].set_visible(False)
-ax[2].set_xticks([0,1]); ax[2].set_xticklabels(["Source","Target"], fontweight="bold")
-ax[2].set_yticks([0,1]); ax[2].set_yticklabels(["Source","Target"], fontweight="bold")
+ax[2].set_xticks([0,1]); ax[2].set_xticklabels([DATASET_NAMES[source],DATASET_NAMES[target]], fontweight="bold")
+ax[2].set_yticks([0,1]); ax[2].set_yticklabels([DATASET_NAMES[source],DATASET_NAMES[target]], fontweight="bold")
 fig.tight_layout()
 fig.savefig(f"{output_dir}vocab_frequency.png",dpi=300)
+fig.savefig(f"{output_dir}vocab_frequency.pdf")
 plt.close(fig)
 
 ## Compute Log Odds
@@ -388,8 +396,8 @@ ax[1].scatter(vc_df.dropna()["users_odds_source"],
               s=10,
               label="$\\log(\\frac{p(x|depression)}{p(x|control)})$")
 for i, l in enumerate(["Frequency","Users"]):
-    ax[i].set_xlabel(f"Source {l} Odds", fontweight="bold")
-    ax[i].set_ylabel(f"Target {l} Odds", fontweight="bold")
+    ax[i].set_xlabel("{} {} Odds".format(DATASET_NAMES[source], l), fontweight="bold")
+    ax[i].set_ylabel("{} {} Odds".format(DATASET_NAMES[target], l), fontweight="bold")
     ax[i].legend(loc="upper right", frameon=True)
     ax[i].spines["top"].set_visible(False)
     ax[i].spines["right"].set_visible(False)
@@ -397,6 +405,7 @@ for i, l in enumerate(["Frequency","Users"]):
     ax[i].axhline(0,color="black",alpha=0.1,linestyle="--",zorder=-1)
 fig.tight_layout()
 fig.savefig(f"{output_dir}log_odds.png",dpi=300)
+fig.savefig(f"{output_dir}log_odds.pdf")
 plt.close(fig)
 
 ## Compare P(y|word)
@@ -414,13 +423,14 @@ for a in ax:
     a.spines["top"].set_visible(False)
 for i in range(2):
     ax[i].set_xlabel("Pr(Depression | term)", fontweight="bold")
-    ax[i].set_title(["Source","Target"][i], fontweight="bold")
+    ax[i].set_title([DATASET_NAMES[source],DATASET_NAMES[target]][i], fontweight="bold")
 ax[2].set_title("Comparison", fontweight="bold")
-ax[2].set_xlabel("Source Pr(Depression|term)", fontweight="bold")
-ax[2].set_ylabel("Target Pr(Depression|term)", fontweight="bold")
+ax[2].set_xlabel("{} Pr(Depression|term)".format(DATASET_NAMES[source]), fontweight="bold")
+ax[2].set_ylabel("{} Pr(Depression|term)".format(DATASET_NAMES[target]), fontweight="bold")
 ax[2].legend(loc="upper right")
 fig.tight_layout()
 fig.savefig(f"{output_dir}probability_depression.png",dpi=300)
+fig.savefig(f"{output_dir}probability_depression.pdf")
 plt.close(fig)
 
 #################
@@ -449,8 +459,8 @@ X_all_proj = projector.fit_transform(X_all)
 
 ## Show Projection
 fig, ax = plt.subplots(figsize=(10,5.6))
-ax.scatter([],[],color="navy",label="Source",s=30,alpha=.5)
-ax.scatter([],[],color="darkred",label="Target",s=30,alpha=.5)
+ax.scatter([],[],color="navy",label=DATASET_NAMES[source],s=30,alpha=.5)
+ax.scatter([],[],color="darkred",label=DATASET_NAMES[target],s=30,alpha=.5)
 ax.scatter(X_all_proj[nn_mask][:,0],
            X_all_proj[nn_mask][:,1],
            alpha=0.1,
@@ -461,6 +471,7 @@ ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
 fig.tight_layout()
 fig.savefig(f"{output_dir}umap.png",dpi=300)
+fig.savefig(f"{output_dir}umap.pdf")
 plt.close(fig)
 
 #################
@@ -578,7 +589,7 @@ ax.errorbar(q_coef_source[1],
             alpha=0.5,
             label="Topic Dimension")
 cbar = fig.colorbar(m)
-cbar.set_label("Difference in Topic Prevalence\n(Source - Target)",
+cbar.set_label("Difference in Topic Prevalence\n({} - {})".format(DATASET_NAMES[source], DATASET_NAMES[target]),
                fontweight="bold",
                labelpad=10,
                fontsize=18)
@@ -592,13 +603,14 @@ ax.axvline(0, color="black", linestyle="--", alpha=0.5)
 ax.axhline(0, color="black", linestyle="--", alpha=0.5)
 ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
-ax.set_xlabel("Linear Coefficient (Source)", fontweight="bold", fontsize=18)
-ax.set_ylabel("Linear Coefficient (Target)", fontweight="bold", fontsize=18)
+ax.set_xlabel("Linear Coefficient ({})".format(DATASET_NAMES[source]), fontweight="bold", fontsize=18)
+ax.set_ylabel("Linear Coefficient ({})".format(DATASET_NAMES[target]), fontweight="bold", fontsize=18)
 ax.tick_params(labelsize=16)
 ax.set_xlim(xlim[0], xlim[1])
 ax.set_ylim(ylim[0], ylim[1])
 fig.tight_layout()
 fig.savefig(f"{output_dir}topic_discriminator_coefficients.png",dpi=300)
+fig.savefig(f"{output_dir}topic_discriminator_coefficients.pdf")
 plt.close(fig)
 
 ## Compute Difference in Coefficients
@@ -624,12 +636,13 @@ ax.set_yticks(range(top_coef_diff.shape[0]))
 ax.set_yticklabels(top_coef_diff["topic_reps"])
 ax.spines["right"].set_visible(False)
 ax.spines["top"].set_visible(False)
-ax.set_xlabel("Coefficient Difference\n(Source - Target)", fontweight="bold", fontsize=18)
+ax.set_xlabel("Coefficient Difference\n({} - {})".format(DATASET_NAMES[source], DATASET_NAMES[target]), fontweight="bold", fontsize=18)
 ax.tick_params(axis="x",labelsize=16)
 ax.tick_params(axis="y",labelsize=10)
 ax.set_ylim(-.5, top_coef_diff.shape[0]-0.5)
 fig.tight_layout()
 fig.savefig(f"{output_dir}topic_discriminator_coefficients_differences.png",dpi=300)
+fig.savefig(f"{output_dir}topic_discriminator_coefficients_differences.pdf")
 plt.close(fig)
 
 LOGGER.info("Script complete!")

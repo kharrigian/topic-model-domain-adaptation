@@ -1,0 +1,23 @@
+{
+    
+    "output_dir":null,
+    "run_id":null,
+    
+    "N" : 1000,
+    "sigma_0" : 3,
+    "p_domain" : 0.5,
+    "gamma" : 20,
+    "V" : 100 ,
+    "beta" : null,
+    "theta" : [[0.7, 0.2, 0.1], 
+              [0.2, 0.7, 0.1]],
+    "coef" : [[1, 0.05, 0.1], 
+              [0.05, 1, 0.1]],
+    
+    "n_sample" : 1000,
+    "n_iter_lda" : 250,
+    "n_iter_plda" : 500,
+
+    "random_state" : 42
+
+}

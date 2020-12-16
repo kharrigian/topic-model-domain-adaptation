@@ -13,6 +13,7 @@ data/resources/*.txt
 data/results/depression
 !data/results/README.md
 
-## Temporary Directories
+## Temporary Files
 temp*
 *$*
+*.pptx

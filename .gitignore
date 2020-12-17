@@ -11,6 +11,7 @@ plots/classification/
 data/raw/depression/
 data/resources/*.txt
 data/results/depression
+data/results/synthetic
 !data/results/README.md
 
 ## Temporary Files

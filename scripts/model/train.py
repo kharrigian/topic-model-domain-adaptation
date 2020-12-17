@@ -311,7 +311,7 @@ def get_scores(y_true, y_score, threshold=0.5):
     avg_precision = metrics.average_precision_score(y_true, y_score)
     f1 = metrics.f1_score(y_true, y_pred_bin)
     precision = metrics.precision_score(y_true, y_pred_bin)
-    recall = metrics.precision_score(y_true, y_pred_bin)
+    recall = metrics.recall_score(y_true, y_pred_bin)
     return tpr, fpr, {"auc":auc,"avg_precision":avg_precision,"f1":f1,"precision":precision,"recall":recall}
 
 def _rebalance(X,

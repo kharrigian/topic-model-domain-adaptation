@@ -110,7 +110,7 @@ for i, (u, cmap) in enumerate(zip([lda_unstack, plda_unstack],[plt.cm.Blues,plt.
         for j, col in enumerate(row):
             if pd.isnull(col):
                 continue
-            ax[i].text(j, k, "{:.3f}".format(col)[1:], ha="center", va="center", color="black", fontsize=12, fontweight="bold" if col == np.max(u.values) else "normal")
+            ax[i].text(j, k, "{:.3f}".format(col)[1:], ha="center", va="center", color="black", fontsize=12, fontweight="bold" if np.isclose(col, np.nanmax(u.values)) else "normal")
     ax[i].set_xlabel("Source Sample Size", fontsize=18, fontweight="bold")
     if i == 0:
         ax[i].set_ylabel("Target Sample Size", fontsize=18, fontweight="bold")
@@ -147,7 +147,7 @@ plt.show()
 #         for j, col in enumerate(row):
 #             if pd.isnull(col):
 #                 continue
-#             ax[i].text(j, k, "{:.3f}".format(col)[1:], ha="center", va="center", color="black", fontsize=12, fontweight="bold" if col == np.max(u.values) else "normal")
+#             ax[i].text(j, k, "{:.3f}".format(col)[1:], ha="center", va="center", color="black", fontsize=12, fontweight="bold" if col == np.nanmax(u.values) else "normal")
 #     ax[i].set_xlabel("$\\beta$", fontsize=18, fontweight="bold")
 #     if i == 0:
 #         ax[i].set_ylabel("$\\alpha$", fontsize=18, fontweight="bold", rotation=0, labelpad=20)

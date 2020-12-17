@@ -64,6 +64,11 @@ for exp_id, exp_dir in COMPARE_DIRS.items():
         ## Optimize Model Parameters (Based on Source Data)
         sf_opt_C = sf_data.loc[(sf_data["domain"]=="source")&(sf_data["group"]=="development")].set_index("C")[METRIC_OPT].idxmax()
         sf_data = sf_data.loc[sf_data["C"]==sf_opt_C].reset_index(drop=True).copy()
+        ## Update Based on Source Data
+        if ed_config["topic_model_data"] == "source":
+            ed_config["target_sample_size"]["train"] = 0
+        if ed_config["topic_model_data"] == "target":
+            ed_config["source_sample_size"]["train"] = 0
         ## Merge Metadata
         sf_data["experiment"] = exp_id
         for v in ed_config.keys():

@@ -69,6 +69,8 @@ def standardize(X_latent,
     ## Standardize Latent X
     X_latent_normed = np.zeros_like(X_latent)
     for d in [0, 1]:
+        if (D == d).sum() == 0:
+            continue
         X_latent_normed[D==d] = np.divide(X_latent[D==d] - X_latent[D==d].mean(axis=0),
                                           X_latent[D==d].std(axis=0),
                                           out=np.zeros_like(X_latent[D==d]),
@@ -96,13 +98,12 @@ def data_generating_process(N,
     ## Convert Data Types
     theta = np.array(theta)
     coef = np.array(coef)
-    ## Generate Topic-Word Distributions
-    phi = stats.dirichlet([beta]*V).rvs(theta.shape[1])
     ## Normalization of Parameters
     theta = theta / theta.sum(axis=1,keepdims=True)
-    phi = phi / phi.sum(axis=1,keepdims=True)
     ## Update Document Topic Concentration
     theta = theta * sigma_0
+    ## Generate Topic-Word Distributions
+    phi = stats.dirichlet([beta]*V).rvs(theta.shape[1])
     ## Data Storage
     X_latent = np.zeros((N,coef.shape[1]), dtype=float)
     X = np.zeros((N, phi.shape[1]), dtype=int)

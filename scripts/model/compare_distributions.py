@@ -31,6 +31,7 @@ import os
 import sys
 
 ## External Libraries
+import demoji
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -78,6 +79,21 @@ def load_data(data_dir):
     users = [i.strip() for i in open(f"{data_dir}users.txt","r")]
     terms = [i.strip() for i in open(f"{data_dir}vocab.txt","r")]
     return X, y, splits, filenames, users, terms
+
+def replace_emojis(features):
+    """
+    
+    """
+    features_clean = []
+    for f in features:
+        f_res = demoji.findall(f)
+        if len(f_res) > 0:
+            for x,y in f_res.items():
+                f = f.replace(x,f"<{y}>")
+            features_clean.append(f)
+        else:
+            features_clean.append(f)
+    return features_clean
 
 def load_glove(dim,
                resource_data_dir="./data/resources/",
@@ -325,6 +341,9 @@ v_df = pd.merge(v_source_df,
                 left_index=True,
                 right_index=True)
 
+## Format Emojis
+v_df.index = replace_emojis(v_df.index.tolist())
+
 ## Compute Overlap
 v_overlap = np.array([[v_source_df.shape[0], v_df.dropna().shape[0]],
                       [v_df.dropna().shape[0], v_target_df.shape[0]]])
@@ -382,6 +401,9 @@ for domain in ["source","target"]:
     for label in ["depression","control"]:
         for prefix, criteria in zip(["count","count_users"],[min_term_freq, min_user_freq]):
             vc_df = vc_df.loc[vc_df[f"{prefix}_{label}_{domain}"].fillna(0) >= criteria].copy()
+
+## Format Emojis
+vc_df.index = replace_emojis(vc_df.index.tolist())
 
 ## Plot Log Odds Comparsison
 fig, ax = plt.subplots(1,2,figsize=(10,5.8))
@@ -484,6 +506,9 @@ X_target, y_target = sample_data(X_target, y_target, [1,1], 500)
 
 ## Align Vocabulary Spaces
 X_source, X_target, vocab = align_data(X_source, X_target, terms_source, terms_target, "outer")
+
+## Format Vocabulary
+vocab = replace_emojis(vocab)
 
 ## Identifity Vocabulary Filter
 vocab_mask = np.ones(len(vocab),dtype=int)

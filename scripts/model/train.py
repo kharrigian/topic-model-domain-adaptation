@@ -16,6 +16,7 @@ import json
 import argparse
 
 ## External Libraries
+import demoji
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -59,12 +60,30 @@ def parse_arguments():
     parser.add_argument("--plot_topic_word",
                         action="store_true",
                         default=False)
+    parser.add_argument("--plot_fmt",
+                        type=str,
+                        default=".png")
     ## Parse Arguments
     args = parser.parse_args()
     ## Check Config
     if not os.path.exists(args.config):
         raise FileNotFoundError(f"Config file does not exist: {args.config}")
     return args
+
+def replace_emojis(features):
+    """
+    
+    """
+    features_clean = []
+    for f in features:
+        f_res = demoji.findall(f)
+        if len(f_res) > 0:
+            for x,y in f_res.items():
+                f = f.replace(x,f"<{y}>")
+            features_clean.append(f)
+        else:
+            features_clean.append(f)
+    return features_clean
 
 class Config(object):
 
@@ -124,7 +143,8 @@ def align_data(X_source, X_target, vocab_source, vocab_target, how="outer"):
     Xt = sparse.hstack([X_target[:,[target2ind[o] for o in overlap]],
                         sparse.csr_matrix((X_target.shape[0],len(source_only))),
                         X_target[:,[target2ind[o] for o in target_only]]])
-        
+    ## Format Emojis
+    vocab = replace_emojis(vocab)
     return Xs.tocsr(), Xt.tocsr(), vocab
 
 def split_data(X, y, splits):
@@ -518,7 +538,7 @@ def main():
     ax.set_xlabel("MCMC Iteration", fontweight="bold")
     ax.set_ylabel("Log-Likelihood Per Word", fontweight="bold")
     fig.tight_layout()
-    fig.savefig(f"{config.output_dir}/topic_model/log_likelihood_train.png",dpi=300)
+    fig.savefig(f"{config.output_dir}/topic_model/log_likelihood_train{args.plot_fmt}",dpi=300)
     plt.close(fig)
     ## Evaluate Topics
     for k in range(model.k):
@@ -533,14 +553,14 @@ def main():
                                               model=model,
                                               use_plda=config.use_plda,
                                               n_burn=config.n_burn)
-    fig.savefig(f"{config.output_dir}/topic_model/average_topic_distribution_train.png",dpi=300)
+    fig.savefig(f"{config.output_dir}/topic_model/average_topic_distribution_train{args.plot_fmt}",dpi=300)
     plt.close(fig)
     ## Show Average Topic Distribution (Development Data)
     fig, ax = plot_average_topic_distribution(theta=theta_dev[dev_infer_mask],
                                               model=model,
                                               use_plda=config.use_plda,
                                               n_burn=0)
-    fig.savefig(f"{config.output_dir}/topic_model/average_topic_distribution_development.png",dpi=300)
+    fig.savefig(f"{config.output_dir}/topic_model/average_topic_distribution_development{args.plot_fmt}",dpi=300)
     plt.close(fig)
     ## Show Trace for a Document Topic Distribution (Random Sample)
     if args.plot_document_topic:
@@ -549,7 +569,7 @@ def main():
             fig, ax = plot_document_topic_distribution(doc=doc_n,
                                                        theta=theta_train,
                                                        n_burn=config.n_burn)
-            fig.savefig(f"{config.output_dir}/topic_model/document_topic/train_{doc_n}.png",dpi=300)
+            fig.savefig(f"{config.output_dir}/topic_model/document_topic/train_{doc_n}{args.plot_fmt}",dpi=300)
             plt.close(fig)
     ## Show Trace for a Topic Word Distribution
     if args.plot_topic_word:
@@ -562,7 +582,7 @@ def main():
                                                    n_trace=30,
                                                    n_top=30,
                                                    n_burn=config.n_burn)
-            fig.savefig(f"{config.output_dir}/topic_model/topic_word/topic_{topic}.png",dpi=300)
+            fig.savefig(f"{config.output_dir}/topic_model/topic_word/topic_{topic}{args.plot_fmt}",dpi=300)
             plt.close(fig)
     ################
     ### Depression Classifier Training
@@ -686,7 +706,7 @@ def main():
                         ax[i,j].set_xlim(0,1)
                         ax[i,j].set_ylim(0,1)
                 fig.tight_layout()
-                fig.savefig(f"{config.output_dir}/classification/roc_auc_{average_representation}_{norm}.png",dpi=300)
+                fig.savefig(f"{config.output_dir}/classification/roc_auc_{average_representation}_{norm}{args.plot_fmt}",dpi=300)
                 plt.close(fig)
     ## Format Scores
     LOGGER.info("Caching Scores")

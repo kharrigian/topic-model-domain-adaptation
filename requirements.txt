@@ -5,4 +5,5 @@ matplotlib
 tqdm
 scikit-learn
 tomotopy
+demoji
 mhlib @ git+ssh://git@github.com/kharrigian/emnlp-2020-mental-health-generalization@main#egg=mhlib

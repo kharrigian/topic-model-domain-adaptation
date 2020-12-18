@@ -21,8 +21,12 @@ PARAMETER_GRID = {
     "use_plda":[True],
     "k_latent":[50],
     "k_per_label":[20],
-    "alpha":[0.001, 0.01, 0.1, 1, 5, 10, 50, 100],
-    "beta":[0.001, 0.01, 0.1, 1, 5, 10, 50, 100],
+    "alpha":[0.1],
+    "beta":[0.1],
+    "topic_model_data":{
+        "source":[0, 52, 104, 156, 208, 260, 312, 364, 416, 468, 518],
+        "target":[0, 52, 104, 156, 208, 260, 312, 364, 416, 468, 518]
+    }
 }
 
 
@@ -65,11 +69,25 @@ def create_configurations():
     ## Load Base Config
     with open(BASE_CONFIG,"r") as the_file:
         base_config = json.load(the_file)
+    ## Topic-Model Sizes
+    if "topic_model_data" in PARAMETER_GRID:
+        PARAMETER_GRID["topic_model_data_source"] = PARAMETER_GRID["topic_model_data"]["source"]
+        PARAMETER_GRID["topic_model_data_target"] = PARAMETER_GRID["topic_model_data"]["target"]
+        _ = PARAMETER_GRID.pop("topic_model_data",None)
     ## Create Configurations
     configs = []
     for pg in ParameterGrid(PARAMETER_GRID):
         ## Copy Base
         pg_config = deepcopy(base_config)
+        ## Topic Model Data
+        if "topic_model_data_source" in pg and "topic_model_data_target" in pg:
+            pg["topic_model_data"] = {"source":pg.get("topic_model_data_source"),"target":pg.get("topic_model_data_target")}
+            s = pg.pop("topic_model_data_source",None)
+            t = pg.pop("topic_model_data_target",None)
+            if s == 0 and t == 0:
+                continue
+            if (s == 0 or t == 0) and pg.get("use_plda", None):
+                continue
         ## Update Output Directory
         pg_id = "_".join(f"{x}-{y}" for x, y in pg.items())
         pg_id = pg_id.replace(":","-").\

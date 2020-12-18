@@ -164,13 +164,22 @@ def split_data(X, y, splits):
 ## Helper Function for Converting Count Data
 term_expansion = lambda x, vocab: flatten([[t]*int(i) for i, t in zip(x.toarray()[0], vocab)])
 
-def generate_corpus(Xs, Xt, vocab, source=True, target=True, ys=None, yt=None):
+def generate_corpus(Xs, Xt, vocab, source=True, target=True, source_mask=None, target_mask=None):
     """
 
     """
+    ## Format Masks
+    if source_mask is not None:
+        source_mask = set(source_mask)
+    if target_mask is not None:
+        target_mask = set(target_mask)
+    ## Start Generation
     corpus = tp.utils.Corpus()
     missing = {"source":[],"target":[]}
     for i, x in tqdm(enumerate(Xs), total=Xs.shape[0], desc="Adding Source Documents", file=sys.stdout):
+        if source_mask is not None and i not in source_mask:
+            missing["source"].append(i)
+            continue
         if source:
             x_flat = term_expansion(x, vocab)
         else:
@@ -178,11 +187,11 @@ def generate_corpus(Xs, Xt, vocab, source=True, target=True, ys=None, yt=None):
         if len(x_flat) == 0:
             missing["source"].append(i)
             continue
-        labels = ["source"]
-        if ys is not None:
-            labels.append({0:"control",1:"depression"}.get(ys[i]))
-        corpus.add_doc(term_expansion(x, vocab),labels=labels)
+        corpus.add_doc(term_expansion(x, vocab),labels=["source"])
     for i, x in tqdm(enumerate(Xt), total=Xt.shape[0], desc="Adding Target Documents", file=sys.stdout):
+        if target_mask is not None and i not in target_mask:
+            missing["target"].append(i)
+            continue
         if target:
             x_flat = term_expansion(x, vocab)
         else:
@@ -191,9 +200,7 @@ def generate_corpus(Xs, Xt, vocab, source=True, target=True, ys=None, yt=None):
             missing["target"].append(i)
             continue
         labels = ["target"]
-        if yt is not None:
-            labels.append({0:"control",1:"depression"}.get(yt[i]))
-        corpus.add_doc(x_flat,labels=labels)
+        corpus.add_doc(x_flat,labels=["target"])
     return corpus, missing
 
 def which_plda_topic(topic_n, plda_model):
@@ -236,13 +243,12 @@ def plot_average_topic_distribution(theta,
     return fig, ax
     
 def plot_document_topic_distribution(doc,
-                                     theta,
-                                     n_burn=100):
+                                     theta):
     """
 
     """
     ## Get Distribution
-    doc_topic_quantile = np.percentile(theta[n_burn:,doc,:], q=[2.5,50,97.5], axis=0).T
+    doc_topic_quantile = np.percentile(theta[:,doc,:], q=[2.5,50,97.5], axis=0).T
     ## Plot Trace and Distribution
     fig, ax = plt.subplots(1,2,figsize=(10,5.6))
     for i in theta[:,doc,:].T:
@@ -444,26 +450,34 @@ def main():
     ###################
     ### Corpus Generation
     ###################
-    ## Which Data Goes into Corpus
-    if config.topic_model_data == "all":
-        use_source = True
-        use_target = True
-    elif config.topic_model_data == "source":
-        use_source = True
-        use_target = False
-    elif config.topic_model_data == "target":
-        use_source = False
-        use_target = True
-    else:
-        raise ValueError("Did not recognized parameter `topic_model_data`")
+    ## Sample Topic Model Training Masks
+    if config.topic_model_data.get("source") > Xs_train.shape[0]:
+        raise ValueError("Requested Source Topic Model Train Size Greater than Available Data")
+    if config.topic_model_data.get("target") > Xt_train.shape[0]:
+        raise ValueError("Requested Target Topic Model Train Size Greater than Available Data")
+    source_mask = sorted(np.random.choice(Xs_train.shape[0], size=config.topic_model_data.get("source"), replace=False))
+    target_mask = sorted(np.random.choice(Xt_train.shape[0], size=config.topic_model_data.get("target"), replace=False))
     ## Initialize Corpus
-    LOGGER.info("Generating Training Corpus")
-    train_corpus, train_missing = generate_corpus(Xs_train, Xt_train, vocab, source=use_source, target=use_target, ys=ys_train if config.use_labels else None, yt=None)
-    LOGGER.info("Generating Development Corpus")
-    development_corpus, dev_missing = generate_corpus(Xs_dev, Xt_dev, vocab, source=True, target=True)
-    if not use_source or not use_target:
-        LOGGER.info("Generating Training Corpus (Unused for Topic Model)")
-        train_corpus_unused, train_missing_unused = generate_corpus(Xs_train, Xt_train, vocab, source=not use_source, target=not use_target)
+    LOGGER.info("Generating Training Corpus (Topic-Model Learning)")
+    train_corpus, train_missing = generate_corpus(Xs_train,
+                                                  Xt_train,
+                                                  vocab,
+                                                  source=True,
+                                                  target=True,
+                                                  source_mask=source_mask,
+                                                  target_mask=target_mask)
+    LOGGER.info("Generating Training Corpus (Inference)")
+    train_corpus_infer, train_missing_infer = generate_corpus(Xs_train,
+                                                              Xt_train,
+                                                              vocab,
+                                                              source=True,
+                                                              target=True)
+    LOGGER.info("Generating Development Corpus (Inference)")
+    development_corpus, dev_missing = generate_corpus(Xs_dev,
+                                                      Xt_dev,
+                                                      vocab,
+                                                      source=True,
+                                                      target=True)
     ###################
     ### Topic Model (Training)
     ###################
@@ -489,24 +503,25 @@ def main():
     model.train(1, workers=8)
     ## Generate Development Documents
     if config.use_plda:
+        train_docs = [model.make_doc([train_corpus_infer._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(train_corpus_infer._docs, total=len(train_corpus_infer._docs), desc="Training Corpus Transformation", file=sys.stdout)]
         dev_docs = [model.make_doc([development_corpus._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(development_corpus._docs, total=len(development_corpus._docs), desc="Development Corpus Transformation", file=sys.stdout)]
-        if not use_source or not use_target:
-            unused_train_docs = [model.make_doc([train_corpus_unused._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(train_corpus_unused._docs, total=len(train_corpus_unused._docs), desc="Unused Training Corpus Transformation", file=sys.stdout)]
     else:
+        train_docs = [model.make_doc([train_corpus_infer._vocab.id2word[i] for i in d[0]]) for d in tqdm(train_corpus_infer._docs, total=len(train_corpus_infer._docs), desc="Training Corpus Transformation", file=sys.stdout)]
         dev_docs = [model.make_doc([development_corpus._vocab.id2word[i] for i in d[0]]) for d in tqdm(development_corpus._docs, total=len(development_corpus._docs), desc="Development Corpus Transformation", file=sys.stdout)]
-        if not use_source or not use_target:
-            unused_train_docs = [model.make_doc([train_corpus_unused._vocab.id2word[i] for i in d[0]]) for d in tqdm(train_corpus_unused._docs, total=len(train_corpus_unused._docs), desc="Unused Training Corpus Transformation", file=sys.stdout)]
     ## Corpus-Updated Parameters
     V = model.num_vocabs
-    N = len(model.docs) if (use_source and use_target) else len(model.docs) + len(unused_train_docs)
+    N = len(model.docs)
+    N_train = len(train_docs)
     N_dev = len(dev_docs)
     K = model.k
     ## Gibbs Cache
     ll = np.zeros(config.n_iter)
     phi = np.zeros((config.n_iter, K, V))
-    theta_train = np.zeros((config.n_iter, N, K))
+    theta = np.zeros((config.n_iter, N, K))
+    theta_train = np.zeros((config.n_iter, N_train, K))
     theta_dev = np.zeros((config.n_iter, N_dev, K))
     ## Train Model
+    dev_infer_mask = []
     for epoch in tqdm(range(0, config.n_iter), desc="MCMC Iteration", file=sys.stdout):
         ## Run Sample Epoch
         model.train(1, workers=8)
@@ -514,17 +529,11 @@ def main():
         ll[epoch] = model.ll_per_word
         ## Cache Parameters
         phi[epoch] = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
-        epoch_theta_train = [model.infer(d,iter=config.n_sample)[0] for d in model.docs]
-        if not use_source or not use_target:
-            if epoch % config.dev_sample_rate == 0 and epoch > config.n_burn:
-                epoch_theta_train = epoch_theta_train + model.infer(unused_train_docs,iter=config.n_sample,together=False)[0]
-            else:
-                epoch_theta_train = epoch_theta_train + [np.zeros(K) * np.nan for _ in range(len(unused_train_docs))]
-        theta_train[epoch] = np.vstack(epoch_theta_train)
-        if epoch % config.dev_sample_rate == 0 and epoch > config.n_burn:
+        theta[epoch] = np.vstack([model.infer(d,iter=config.n_sample)[0] for d in model.docs])
+        if epoch % config.infer_sample_rate == 0 and epoch > config.n_burn:
+            dev_infer_mask.append(epoch)
+            theta_train[epoch] = np.vstack(model.infer(train_docs,iter=config.n_sample,together=False)[0])
             theta_dev[epoch] = np.vstack(model.infer(dev_docs,iter=config.n_sample,together=False)[0])
-    ## Isolate Non-Zero Dev Distributions (e.g. Sample Rate + Burn In)
-    dev_infer_mask = [i for i, j in enumerate(theta_dev) if not (j==0).all().all()]
     ## Cache Model Summary
     _ = model.summary(topic_word_top_n=20, file=open(f"{config.output_dir}/topic_model/model_summary.txt","w"))
     ################
@@ -549,10 +558,10 @@ def main():
             LOGGER.info("{}: {}".format(k, ", ".join(top_terms)))
     ## Show Average Topic Distribution (Training Data)
     LOGGER.info("Plotting Average Topic Distributions")
-    fig, ax = plot_average_topic_distribution(theta=theta_train,
+    fig, ax = plot_average_topic_distribution(theta=theta_train[dev_infer_mask],
                                               model=model,
                                               use_plda=config.use_plda,
-                                              n_burn=config.n_burn)
+                                              n_burn=0)
     fig.savefig(f"{config.output_dir}/topic_model/average_topic_distribution_train{args.plot_fmt}",dpi=300)
     plt.close(fig)
     ## Show Average Topic Distribution (Development Data)
@@ -567,8 +576,7 @@ def main():
         LOGGER.info("Plotting Sample of Document Topic Distributions")
         for doc_n in np.random.choice(theta_train.shape[1], 10):
             fig, ax = plot_document_topic_distribution(doc=doc_n,
-                                                       theta=theta_train,
-                                                       n_burn=config.n_burn)
+                                                       theta=theta_train[dev_infer_mask])
             fig.savefig(f"{config.output_dir}/topic_model/document_topic/train_{doc_n}{args.plot_fmt}",dpi=300)
             plt.close(fig)
     ## Show Trace for a Topic Word Distribution
@@ -593,26 +601,16 @@ def main():
     theta_dev_latent = theta_dev[:,:,-config.k_latent:]
     ## Get Ground Truth Labels
     y_train = np.array(
-        [j for i, j in enumerate(ys_train) if i not in train_missing.get("source")] + \
-        [j for i, j in enumerate(yt_train) if i not in train_missing.get("target")]
+        [j for i, j in enumerate(ys_train) if i not in train_missing_infer.get("source")] + \
+        [j for i, j in enumerate(yt_train) if i not in train_missing_infer.get("target")]
     )
-    if not use_source:
-        y_train = np.hstack([y_train,
-                            [j for i, j in enumerate(ys_train) if i not in train_missing_unused.get("source")]])
-    if not use_target:
-        y_train = np.hstack([y_train,
-                            [j for i, j in enumerate(yt_train) if i not in train_missing_unused.get("target")]])
     y_dev = np.array(
         [j for i, j in enumerate(ys_dev) if i not in dev_missing.get("source")] + \
         [j for i, j in enumerate(yt_dev) if i not in dev_missing.get("target")]
     )
     ## Domain Masks
-    if (use_source and use_target) or (use_source and not use_target):
-        source_train_ind = list(range(Xs_train.shape[0] - len(train_missing.get("source"))))
-        target_train_ind = list(range(len(source_train_ind), y_train.shape[0]))
-    elif not use_source and use_target:
-        target_train_ind = list(range(Xt_train.shape[0] - len(train_missing.get("target"))))
-        source_train_ind = list(range(len(target_train_ind), y_train.shape[0]))
+    source_train_ind = list(range(Xs_train.shape[0] - len(train_missing_infer.get("source"))))
+    target_train_ind = list(range(len(source_train_ind), y_train.shape[0]))
     source_dev_ind = list(range(Xs_dev.shape[0] - len(dev_missing.get("source"))))
     target_dev_ind = list(range(len(source_dev_ind), y_dev.shape[0]))
     ## Separate Training Labels

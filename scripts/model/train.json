@@ -1,5 +1,5 @@
 {
-    "output_dir":"./data/results/depression/",
+    "output_dir":"./test_out/",
 
     "source" : "clpsych",
     "target" : "wolohan",
@@ -14,7 +14,7 @@
     "min_doc_freq" : 10,
     "rm_top" : 250,
 
-    "topic_model_data" : "all",
+    "topic_model_data": {"source":518, "target":518},
     "use_plda" : true,
     "use_labels" : false,
     "alpha" : 0.1,
@@ -24,7 +24,7 @@
     "n_sample": 1000,
     "k_latent" : 50,
     "k_per_label" : 20, 
-    "dev_sample_rate" : 20,
+    "infer_sample_rate" : 20,
 
     "C" : [1, 5, 10, 50, 100],
     "max_iter" : 5000,

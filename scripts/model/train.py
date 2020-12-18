@@ -63,6 +63,9 @@ def parse_arguments():
     parser.add_argument("--plot_fmt",
                         type=str,
                         default=".png")
+    parser.add_argument("--evaluate_test",
+                        action="store_true",
+                        default=False)
     ## Parse Arguments
     args = parser.parse_args()
     ## Check Config
@@ -445,8 +448,10 @@ def main():
     ## Sampling 
     Xs_train, ys_train = sample_data(Xs_train, ys_train, config.source_class_ratio.get("train"), config.source_sample_size.get("train"))
     Xs_dev, ys_dev = sample_data(Xs_dev, ys_dev, config.source_class_ratio.get("dev"), config.source_sample_size.get("dev"))
+    Xs_test, ys_test = sample_data(Xs_test, ys_test, config.source_class_ratio.get("test"), config.source_sample_size.get("test"))
     Xt_train, yt_train = sample_data(Xt_train, yt_train, config.target_class_ratio.get("train"), config.target_sample_size.get("train"))
     Xt_dev, yt_dev = sample_data(Xt_dev, yt_dev, config.target_class_ratio.get("dev"), config.target_sample_size.get("dev"))
+    Xt_test, yt_test = sample_data(Xt_test, yt_test, config.target_class_ratio.get("test"), config.target_sample_size.get("test"))
     ###################
     ### Corpus Generation
     ###################
@@ -478,6 +483,13 @@ def main():
                                                       vocab,
                                                       source=True,
                                                       target=True)
+    if args.evaluate_test:
+        LOGGER.info("Generating Test Corpus (Inference)")
+        test_corpus, test_missing = generate_corpus(Xs_test,
+                                                    Xt_test,
+                                                    vocab,
+                                                    source=True,
+                                                    target=True)
     ###################
     ### Topic Model (Training)
     ###################
@@ -505,14 +517,19 @@ def main():
     if config.use_plda:
         train_docs = [model.make_doc([train_corpus_infer._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(train_corpus_infer._docs, total=len(train_corpus_infer._docs), desc="Training Corpus Transformation", file=sys.stdout)]
         dev_docs = [model.make_doc([development_corpus._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(development_corpus._docs, total=len(development_corpus._docs), desc="Development Corpus Transformation", file=sys.stdout)]
+        if args.evaluate_test:
+            test_docs = [model.make_doc([test_corpus._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(test_corpus._docs, total=len(test_corpus._docs), desc="Test Corpus Transformation", file=sys.stdout)]
     else:
         train_docs = [model.make_doc([train_corpus_infer._vocab.id2word[i] for i in d[0]]) for d in tqdm(train_corpus_infer._docs, total=len(train_corpus_infer._docs), desc="Training Corpus Transformation", file=sys.stdout)]
         dev_docs = [model.make_doc([development_corpus._vocab.id2word[i] for i in d[0]]) for d in tqdm(development_corpus._docs, total=len(development_corpus._docs), desc="Development Corpus Transformation", file=sys.stdout)]
+        if args.evaluate_test:
+            test_docs =  [model.make_doc([test_corpus._vocab.id2word[i] for i in d[0]]) for d in tqdm(test_corpus._docs, total=len(test_corpus._docs), desc="Test Corpus Transformation", file=sys.stdout)]
     ## Corpus-Updated Parameters
     V = model.num_vocabs
     N = len(model.docs)
     N_train = len(train_docs)
     N_dev = len(dev_docs)
+    N_test = len(test_docs) if args.evaluate_test else 0
     K = model.k
     ## Gibbs Cache
     ll = np.zeros(config.n_iter)
@@ -520,6 +537,7 @@ def main():
     theta = np.zeros((config.n_iter, N, K))
     theta_train = np.zeros((config.n_iter, N_train, K))
     theta_dev = np.zeros((config.n_iter, N_dev, K))
+    theta_test = np.zeros((config.n_iter, N_test, K)) if args.evaluate_test else None
     ## Train Model
     dev_infer_mask = []
     for epoch in tqdm(range(0, config.n_iter), desc="MCMC Iteration", file=sys.stdout):
@@ -534,6 +552,8 @@ def main():
             dev_infer_mask.append(epoch)
             theta_train[epoch] = np.vstack(model.infer(train_docs,iter=config.n_sample,together=False)[0])
             theta_dev[epoch] = np.vstack(model.infer(dev_docs,iter=config.n_sample,together=False)[0])
+            if args.evaluate_test:
+                theta_test[epoch] = np.vstack(model.infer(test_docs,iter=config.n_sample,together=False)[0])
     ## Cache Model Summary
     _ = model.summary(topic_word_top_n=20, file=open(f"{config.output_dir}/topic_model/model_summary.txt","w"))
     ################
@@ -599,6 +619,8 @@ def main():
     ## Isolate General Latent Representations
     theta_train_latent = theta_train[:,:,-config.k_latent:]
     theta_dev_latent = theta_dev[:,:,-config.k_latent:]
+    if args.evaluate_test:
+        theta_test_latent = theta_test[:,:,-config.k_latent:]
     ## Get Ground Truth Labels
     y_train = np.array(
         [j for i, j in enumerate(ys_train) if i not in train_missing_infer.get("source")] + \
@@ -608,16 +630,27 @@ def main():
         [j for i, j in enumerate(ys_dev) if i not in dev_missing.get("source")] + \
         [j for i, j in enumerate(yt_dev) if i not in dev_missing.get("target")]
     )
+    if args.evaluate_test:
+        y_test = np.array(
+        [j for i, j in enumerate(ys_test) if i not in test_missing.get("source")] + \
+        [j for i, j in enumerate(yt_test) if i not in test_missing.get("target")]
+    )
     ## Domain Masks
     source_train_ind = list(range(Xs_train.shape[0] - len(train_missing_infer.get("source"))))
     target_train_ind = list(range(len(source_train_ind), y_train.shape[0]))
     source_dev_ind = list(range(Xs_dev.shape[0] - len(dev_missing.get("source"))))
     target_dev_ind = list(range(len(source_dev_ind), y_dev.shape[0]))
+    if args.evaluate_test:
+        source_test_ind = list(range(Xs_test.shape[0] - len(test_missing.get("source"))))
+        target_test_ind = list(range(len(source_test_ind), y_test.shape[0]))
     ## Separate Training Labels
     y_train_s = y_train[source_train_ind]
     y_train_t = y_train[target_train_ind]
     y_dev_s = y_dev[source_dev_ind]
     y_dev_t = y_dev[target_dev_ind]
+    if args.evaluate_test:
+        y_test_s = y_test[source_test_ind]
+        y_test_t = y_test[target_test_ind]
     ## Cycle Through Types of Preprocessing, Training, and Inference
     all_scores = []
     for C in config.C:
@@ -628,21 +661,31 @@ def main():
                     ## Average
                     X_train = theta_train_latent[dev_infer_mask].mean(axis=0)
                     X_dev = theta_dev_latent[dev_infer_mask].mean(axis=0)
+                    if args.evaluate_test:
+                        X_test = theta_test_latent[dev_infer_mask].mean(axis=0)
                     ## Normalization (If Desired)
                     if norm:
                         X_train = normalize(X_train, norm=norm, axis=1)
                         X_dev = normalize(X_dev, norm=norm, axis=1)
+                        if args.evaluate_test:
+                            X_test = normalize(X_test, norm=norm, axis=1)
                     ## Reshape Data
                     X_train = X_train.reshape((1,X_train.shape[0],X_train.shape[1]))
                     X_dev = X_dev.reshape((1,X_dev.shape[0], X_dev.shape[1]))
+                    if args.evaluate_test:
+                        X_test =  X_test.reshape((1,X_test.shape[0], X_test.shape[1]))
                 else:
                     ## Remove Burn In
                     X_train = theta_train_latent[dev_infer_mask].copy()
                     X_dev = theta_dev_latent[dev_infer_mask].copy()
+                    if args.evaluate_test:
+                        X_test = theta_test_latent[dev_infer_mask].copy()
                     ## Normalization (If Desired)
                     if norm:
                         X_train = np.stack([normalize(x, norm=norm, axis=1) for x in X_train])
                         X_dev = np.stack([normalize(x, norm=norm, axis=1) for x in X_dev])
+                        if args.evaluate_test:
+                            X_test = np.stack([normalize(x, norm=norm, axis=1) for x in X_test])
                 ## Training
                 models = []
                 for x in tqdm(X_train, desc="Fitting Models", file=sys.stdout):
@@ -657,11 +700,15 @@ def main():
                 ## Inference
                 y_pred_train = np.zeros((len(models), X_train.shape[0], y_train.shape[0]))
                 y_pred_dev = np.zeros((len(models), X_dev.shape[0], y_dev.shape[0]))
+                if args.evaluate_test:
+                    y_pred_test = np.zeros((len(models), X_test.shape[0], y_test.shape[0]))
                 for m, mdl in tqdm(enumerate(models), position=0, desc="Making Predictions", total=len(models), file=sys.stdout):
                     y_pred_train[m] = mdl.predict_proba(X_train[m])[:,1]
                     y_pred_dev[m] = mdl.predict_proba(X_dev[m])[:,1]
+                    if args.evaluate_test:
+                        y_pred_test[m] = mdl.predict_proba(X_test[m])[:,1]
                 ## ROC Curves
-                LOGGER.info("Plotting ROC/AUC and Scoring Predictions")
+                LOGGER.info("Plotting ROC/AUC and Scoring Training/Development Predictions")
                 auc_scores = [[[],[]],[[],[]]]
                 fig, ax = plt.subplots(2, 2, figsize=(10,5.8), sharex=True, sharey=True)
                 for m, mdl_pred in tqdm(enumerate(y_pred_train), total=y_pred_train.shape[0], desc="Train Scoring", file=sys.stdout):
@@ -690,6 +737,18 @@ def main():
                             all_scores.append(dl_scores)
                             auc_scores[d][1].append(dl_scores.get("auc",0))
                             ax[d][1].plot(tpr, fpr, alpha=0.01 if not average_representation else .8, color=f"navy", linewidth=0.5 if not average_representation else 1)
+                if args.evaluate_test:
+                    for m, mdl_pred in tqdm(enumerate(y_pred_test), total=y_pred_test.shape[0], desc="Test Scoring", file=sys.stdout):
+                        for l, latent_pred in enumerate(mdl_pred):
+                            for d, dind in enumerate([source_test_ind, target_test_ind]):
+                                d_l_pred = latent_pred[dind]
+                                d_l_true = y_test[dind]
+                                if len(d_l_pred) == 0:
+                                    continue
+                                tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
+                                dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"test"})
+                                dl_scores.update({"norm":norm, "is_average_representation":average_representation,"C":C})
+                                all_scores.append(dl_scores)
                 for i, domain in enumerate(["Source","Target"]):
                     ax[-1,i].set_xlabel("True Positive Rate", fontweight="bold")
                     ax[i, 0].set_ylabel("False Positive Rate", fontweight="bold")

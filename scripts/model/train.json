@@ -1,14 +1,14 @@
 {
-    "output_dir":"./test_out/",
+    "output_dir":"./data/results/depression/",
 
     "source" : "clpsych",
     "target" : "wolohan",
 
-    "source_class_ratio":{"train":[1,1], "dev":[1,1]},
-    "target_class_ratio":{"train":[1,1], "dev":[1,1]},
+    "source_class_ratio":{"train":[1,1], "dev":[1,1], "test":[1,1]},
+    "target_class_ratio":{"train":[1,1], "dev":[1,1], "test":[1,1]},
 
-    "source_sample_size" : {"train":518, "dev":124},
-    "target_sample_size" : {"train":518, "dev":124},
+    "source_sample_size" : {"train":518, "dev":124, "test":300},
+    "target_sample_size" : {"train":518, "dev":124, "test":300},
 
     "vocab_alignment" : "outer",
     "min_doc_freq" : 10,

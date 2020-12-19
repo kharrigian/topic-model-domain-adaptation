@@ -1,0 +1,90 @@
+<Basic Info>
+| LDAModel (current version: 0.9.1)
+| 918 docs, 4792249 words
+| Total Vocabs: 16430, Used Vocabs: 16180
+| Entropy of words: -8.55850
+| Removed Vocabs: i the to a is you and it of that my in for me have are do on this but so with was just am be like can if they your at what will he all would up or get as one we no when out about people how there love from good more time now she know an lol go did think them really some because too who had her much day why got want then <face with tears of joy> has “ see by only ” going make could back his been him still never need right u does than their well way new life were should even feel its off say being someone shit something other im today here also over better always work same any where into oh first happy thing yeah best take very fuck things us after down look please actually thanks game said yes bad though most ever lot every last great man year come before pretty these getting thank those which hate made our years school i’m little it’s let makes night fucking again follow anything haha maybe everyone long around many doing sure person thought probably hope find try girl gonna mean keep tell give friends next while two everything home done use guy nice myself world through since don’t hard dont put nothing guys stop play old <smiling face with heart-eyes> might help big real away having few money start ok trying anyone already god sorry days miss another live talk wish not_know point tomorrow not_even not_have
+|
+<Training Info>
+| Iterations: 1001, Burn-in steps: 0
+| Optimization Interval: 10
+| Log-likelihood per word: -9.10684
+|
+<Initial Parameters>
+| tw: TermWeight.ONE
+| min_cf: 0 (minimum collection frequency of words)
+| min_df: 5 (minimum document frequency of words)
+| rm_top: 250 (the number of top words to be removed)
+| k: 50 (the number of topics between 1 ~ 32767)
+| alpha: 0.01 (hyperparameter of Dirichlet distribution for document-topic)
+| eta: 0.01 (hyperparameter of Dirichlet distribution for topic-word)
+| seed: 42 (random seed)
+| trained in version 0.9.1
+|
+<Parameters>
+| alpha (Dirichlet prior on the per-document topic distributions)
+|  [0.04883227 0.09394637 0.34711197 0.2745158  0.32143196 0.2073908
+|   0.15023266 0.08009697 0.118519   0.04529466 0.61174643 0.44198292
+|   0.77284783 0.8656315  0.8382712  0.47426435 0.01317268 0.45335305
+|   0.37886083 0.02517861 0.27921662 0.07795043 0.12814417 0.11005399
+|   0.04831257 0.20328636 0.06486567 0.15934597 0.13130127 0.11081313
+|   0.3521591  0.7241278  0.21051227 0.29568788 0.12093031 0.02111984
+|   0.21937408 0.04127627 0.79145426 0.02081355 0.09417872 0.00739597
+|   0.2419817  0.16803059 0.7127209  0.17278296 0.05536381 0.03501325
+|   0.06884784 0.13914911]
+| eta (Dirichlet prior on the per-topic word distribution)
+|  0.01
+|
+<Topics>
+| #0 (123385) : boston team pick trade smart government free picks player players top lakers teams draft three likely tatum million season cap
+| #1 (60990) : bike ride tires bikes may riding road miles couple used unless buy rides car likely drivers winter each lane fine
+| #2 (133983) : edit card buy post hours using months reddit second level able once month mine used both tried times easy week
+| #3 (75207) : looks video cool check art app post buy stuff using amazing thx looking awesome bit free used camera sound computer
+| #4 (167268) : omg bc mom tonight cute okay seriously hahaha ya idk ugh such wow tweet literally hair text dad favorite twitter
+| #5 (141433) : lmao ass tho bitch damn nigga wanna smh gotta lmfao af ima cause hell sleep mad baby tonight morning text
+| #6 (111266) : <face blowing a kiss> <loudly crying face> <weary face> <OK hand> <unamused face> <beaming face with smiling eyes> <smirking face> <pensive face> <smiling face with smiling eyes> <flushed face> <clapping hands> <raising hands> <red heart> <smiling face> <pouting face> <victory hand> ️ <folded hands> <see-no-evil monkey> <tired face>
+| #7 (22595) : photo … via photos posted facebook twitter – check birthday wedding full tumblr peter ’ video shows party ‘ outfit
+| #8 (30479) : ur n r b w y plz h o nt ppl hey bb yr wat c cos ho d gud
+| #9 (15055) : que de o e la é se en y el um te un tu por da mas com mi em
+| #10 (212669) : bed sleep watching week hours house food hair room weekend tired finally phone early hour ready eat birthday excited went
+| #11 (226027) : pay case etc full looking comment company job leave story started until may business question reason ask taking per absolutely
+| #12 (247897) : definitely sounds bit job started used sometimes stuff tried usually kind guess friend ago able felt end wanted idea advice
+| #13 (367494) : without part enough kind different read each own far place between once seems less else least second believe possible power
+| #14 (254359) : car run left hit family head crazy damn high comes open drive kid place watch once hey lost side playing
+| #15 (126678) : cat water fun coffee cheese ah doo face mine fish book chicken dog milk apparently sweet cats children green boys
+| #16 (10512) : di ga gw ada ya ke dan ini dia yang apa sama ni tu ama tau g tp pas dah
+| #17 (142469) : yourself women relationship others sex may men depression mental issues family own understand feelings social care date female anxiety self
+| #18 (109045) : show name season watch watching video heard song music beat episode black james vs tonight remember mark voice times michael
+| #19 (12450) : fake rep alex twitter confirms proof reported fans infinite door pm damn not_the sg alone ppl :d coz returned singapore
+| #20 (96251) : post reddit comment dude meme sub cause guess f joke kinda op question e wow bro memes video tho comments
+| #21 (44210) : team win season series race top teams week league cup car dodgers won run races cars field wins driver baseball
+| #22 (30432) : music song album band listen ’ songs click essay ‘ heard metal bands scope continue stand favorite tour guitar feat
+| #23 (61934) : nigga bout ya ii aint bitches jus niggas ass wit yo yu lil cuz fuckin yea bitch goin gotta smh
+| #24 (28703) : via stats followers followed daily follower hi leo checked ask automatically xoxo gemini hun ya hey past twitter welcome checking
+| #25 (81049) : movie star story movies wars character series characters film dark episode force looks fans end book seen wait fan war
+| #26 (24409) : vintage buy earrings glass blue gold jewelry website pink bracelet set silver charm crystal flower size hand green black white
+| #27 (32798) : class college -i test classes students listening study math teacher semester application studying exam student paper device eyes ios professor
+| #28 (68456) : games level playing played content basically players story reason map buy gear opinion both stuff least main build damage either
+| #29 (59741) : bit australia cos team bloody couple quite season mate stuff fans anyway yep week seen watch album etc players sky
+| #30 (97750) : morning tonight awesome may beautiful amazing soon fun week twitter lovely enjoy weekend proud glad not_wait welcome wow true birthday
+| #31 (241781) : wanna heart sometimes baby girls cause anymore friend boyfriend stay care fall feeling bitch smile beautiful hurt cry sad alone
+| #32 (70813) : okay hey c twitter :d welcome amazing birthday cuz omg tweet meet video aww <red heart> awesome hi idk dm cool
+| #33 (69846) : eat pain body weight fat weed eating food cut doctor smoke weeks high water fast smoking week anxiety drink calories
+| #34 (81112) : x xx mum xxx hahaha omg loves tonight such aw not_wait funny tweet morning favourite chance birthday hahahaha lovely girls
+| #35 (24735) : pls producer donate hi film word support movies heres … ur package puppies mind visit packages hour win invasion family
+| #36 (55781) : cant thats didnt ive ill wont doesnt whats theres id wait hes isnt wanna youre havent shes wasnt wouldnt alot
+| #37 (20818) : — national ask food question enjoy today's holiday born birthday party b chocolate until excuse trivia may friday cream nat
+| #38 (269175) : not_be saying not_think wrong not_want not_get else not_like not_a not_. both enough not_the either times not_see happened talking not_really until
+| #39 (15039) : hiking camping trail news hike trip downloads book tips fall park daily download guide dies blog trails online lake national
+| #40 (28481) : :p :d xd <heart suit> hahaha :o nd la ma okay le o ni eh hahahaha de wo d: dee cute
+| #41 (18399) : gold coins collected food depression works levels effect anxiety effective island brain cause medication low side fast treatment used increasing
+| #42 (131978) : country government trump war system american show job history social against media vote kids living own china public news society
+| #43 (69348) : universe consciousness reality tv weird science both simply completely bf believe between human literally mind infinite others mom super crazy
+| #44 (225276) : ass looks sex friend hell kids dick face dead dog die told saw kill dad kid mom white damn ha
+| #45 (75104) : playing team kill games video damage players literally add player pc problem hit win played fun hero enemy black low
+| #46 (21292) : <red heart> ️ <ghost> <two hearts> <purple heart> hi amazing treat <face savoring food> liam boo <smiling face with smiling eyes> babe harry pumpkin story vegas <pizza> gave underwear
+| #47 (10846) : na da sa je e se ko pa ne te ng direction po ang mo su mi ta ti ka
+| #48 (39355) : season justin perfect harry omg cute bieber demi direction <smiling face with smiling eyes> boys austin omfg vote ♡ ️ <two hearts> tweet liam button
+| #49 (106076) : that’s i’ve you’re didn’t can’t doesn’t i’ll i’d he’s isn’t dog they’re there’s wasn’t she’s wouldn’t won’t boyfriend haven’t what’s
+|
+

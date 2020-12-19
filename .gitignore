@@ -3,9 +3,6 @@
 *.pyc
 *pycache*
 
-## Plots
-plots/distributions/
-plots/classification/
 
 ## Data
 data/raw/depression/

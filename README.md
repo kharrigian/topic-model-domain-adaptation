@@ -1,6 +1,6 @@
 # Robust User Representations for Cross Domain Depression Classification using PLDA
 
-This repository contains code for evaluating the use of Partially-labeled LDA for performing domain adaptation in the context of mental health status inference.
+This repository contains code for evaluating the use of Partially-labeled LDA for performing domain adaptation in the context of mental health status inference. To see additional results not included in the manuscript, please see the `plots/` directory. Note that references to "wolohan" denote the Topic-Restricted text dataset.
 
 ## Requirements
 

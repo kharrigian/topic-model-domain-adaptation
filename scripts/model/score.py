@@ -5,12 +5,12 @@
 
 ## Choose Directories to Analyze
 COMPARE_DIRS = {
-    "LDA":"./data/results/depression/k_latent/wolohan_clpsych/LDA/",
-    "PLDA":"./data/results/depression/k_latent/wolohan_clpsych/PLDA/",
+    "LDA":"./data/results/depression/k_latent/clpsych_wolohan/LDA/",
+    "PLDA":"./data/results/depression/k_latent/clpsych_wolohan/PLDA/",
 }
 
 ## Plot Directory
-PLOT_DIR = "./plots/classification/wolohan_clpsych/"
+PLOT_DIR = "./plots/classification/clpsych_wolohan/"
 
 ## Analysis Type
 ANALYSIS_TYPE = "k_latent" # "prior", "k_latent"
@@ -18,6 +18,7 @@ ANALYSIS_TYPE = "k_latent" # "prior", "k_latent"
 ## Metrics
 METRIC_OPT = "f1"
 METRIC_VARS = ["f1","precision","avg_precision","auc"]
+WEIGHTED_METRIC_VALS = ["f1","avg_precision","auc"]
 
 ########################
 ### Imports
@@ -102,16 +103,21 @@ if ANALYSIS_TYPE == "prior":
     ## Cycle Through Combos
     for group in ["train","development"]:
         for domain in ["source","target"]:
-            for metric in METRIC_VARS:
+            for metric in METRIC_VARS + [WEIGHTED_METRIC_VALS]:
                 ## Get Scores
                 prior = pd.pivot_table(scores_df.loc[(scores_df["domain"]==domain)&(scores_df["group"]==group)],
                                index=["alpha","beta"],
                                columns=["experiment"],
                                values=metric,
                                aggfunc=np.mean)
-                ## Separate Models
-                lda_unstack = prior.unstack()["LDA"].iloc[::-1]
-                plda_unstack = prior.unstack()["PLDA"].iloc[::-1]
+                ## Separate Results
+                if isinstance(metric, str):
+                    lda_unstack = prior.unstack()["LDA"].iloc[::-1]
+                    plda_unstack = prior.unstack()["PLDA"].iloc[::-1]
+                else:
+                    lda_unstack = prior[[(m,"LDA") for m in metric]].mean(axis=1).dropna().unstack().iloc[::-1]
+                    plda_unstack = prior[[(m,"PLDA") for m in metric]].mean(axis=1).dropna().unstack().iloc[::-1]
+                    metric = "combined_average"
                 ## Generate Plot
                 fig, ax = plt.subplots(1,2,figsize=(15,5),sharey=True)
                 for i, (u, cmap) in enumerate(zip([lda_unstack, plda_unstack],[plt.cm.Blues,plt.cm.Reds])):
@@ -144,16 +150,21 @@ if ANALYSIS_TYPE == "k_latent":
     ## Cycle Through Combos
     for group in ["train","development"]:
         for domain in ["source","target"]:
-            for metric in METRIC_VARS:
+            for metric in METRIC_VARS + [WEIGHTED_METRIC_VALS]:
                 ## Get Score
                 latent = pd.pivot_table(scores_df.loc[(scores_df["domain"]==domain)&(scores_df["group"]==group)],
                             index=["k_latent","k_per_label"],
                             columns=["experiment"],
                             values=metric,
                             aggfunc=np.mean)
-                ## Serparate Results
-                latent_lda = latent["LDA"].dropna()
-                latent_plda_unstack = latent["PLDA"].unstack().T.iloc[::-1]
+                ## Separate Results
+                if isinstance(metric, str):
+                    latent_lda = latent["LDA"].dropna()
+                    latent_plda_unstack = latent["PLDA"].unstack().T.iloc[::-1]
+                else:
+                    latent_lda = latent[[(m,"LDA") for m in metric]].mean(axis=1).dropna()
+                    latent_plda_unstack = latent[[(m,"PLDA") for m in metric]].mean(axis=1).unstack().T.iloc[::-1]
+                    metric = "combined_average"
                 ## Generate Plots
                 fig, ax = plt.subplots(1,2,figsize=(15,5))
                 ax[0].plot(latent_lda.index.levels[0], latent_lda.values, marker="o", linestyle="--", alpha=0.8, linewidth=3, markersize=10)

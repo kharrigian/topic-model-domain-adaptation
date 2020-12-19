@@ -550,7 +550,10 @@ def main():
         theta[epoch] = np.vstack([model.infer(d,iter=config.n_sample)[0] for d in model.docs])
         if epoch % config.infer_sample_rate == 0 and epoch > config.n_burn:
             dev_infer_mask.append(epoch)
-            theta_train[epoch] = np.vstack(model.infer(train_docs,iter=config.n_sample,together=False)[0])
+            if N_train == N:
+                theta_train[epoch] = theta[epoch]
+            else:
+                theta_train[epoch] = np.vstack(model.infer(train_docs,iter=config.n_sample,together=False)[0])
             theta_dev[epoch] = np.vstack(model.infer(dev_docs,iter=config.n_sample,together=False)[0])
             if args.evaluate_test:
                 theta_test[epoch] = np.vstack(model.infer(test_docs,iter=config.n_sample,together=False)[0])

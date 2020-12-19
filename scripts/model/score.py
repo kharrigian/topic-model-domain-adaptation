@@ -13,7 +13,7 @@ COMPARE_DIRS = {
 PLOT_DIR = "./plots/classification/wolohan_clpsych/"
 
 ## Analysis Type
-ANALYSIS_TYPE = "k_latent" # "sample_size", "prior", "k_latent"
+ANALYSIS_TYPE = "k_latent" # "prior", "k_latent"
 
 ## Metrics
 METRIC_OPT = "f1"
@@ -70,16 +70,12 @@ for exp_id, exp_dir in COMPARE_DIRS.items():
         ## Optimize Model Parameters (Based on Source Data)
         sf_opt_C = sf_data.loc[(sf_data["domain"]=="source")&(sf_data["group"]=="development")].set_index("C")[METRIC_OPT].idxmax()
         sf_data = sf_data.loc[sf_data["C"]==sf_opt_C].reset_index(drop=True).copy()
-        ## Update Based on Source Data
-        if ed_config["topic_model_data"] == "source":
-            ed_config["target_sample_size"]["train"] = 0
-        if ed_config["topic_model_data"] == "target":
-            ed_config["source_sample_size"]["train"] = 0
         ## Merge Metadata
         sf_data["experiment"] = exp_id
         for v in ed_config.keys():
             if v.endswith("sample_size"):
-                sf_data[v] = ed_config[v]["train"]
+                for group in ["train","dev","test"]:
+                    sf_data[f"{group}_{v}"] = ed_config[v].get(group,None)
             elif v.endswith("class_ratio"):
                 sf_data[f"{v}_train"] = str(ed_config[v]["train"])
                 sf_data[f"{v}_dev"] = str(ed_config[v]["dev"])
@@ -99,48 +95,6 @@ scores_df = pd.concat(scores_df).reset_index(drop=True)
 ad = f"{PLOT_DIR}/{ANALYSIS_TYPE}/".replace("//","/")
 if not os.path.exists(ad):
     _ = os.makedirs(ad)
-
-######## Sample Size
-
-if ANALYSIS_TYPE == "sample_size":
-    ## Cycle Through Combos
-    for group in ["train","development"]:
-        for domain in ["source","target"]:
-            for metric in METRIC_VARS:
-                ## Get Data
-                sample_size = pd.pivot_table(scores_df.loc[(scores_df["domain"]==domain)&(scores_df["group"]==group)],
-                                            index=["target_sample_size"],
-                                            columns=["experiment","source_sample_size"],
-                                            values=metric,
-                                            aggfunc=np.mean)
-                ## Separate Models
-                lda_unstack = sample_size["LDA"].iloc[::-1]
-                plda_unstack = sample_size["PLDA"].iloc[::-1]
-                plda_unstack[0] = np.nan; plda_unstack = plda_unstack[sorted(plda_unstack.columns)]
-                ## Generate Figure
-                fig, ax = plt.subplots(1,2,figsize=(15,5), sharey=True)
-                for i, (u, cmap) in enumerate(zip([lda_unstack, plda_unstack],[plt.cm.Blues,plt.cm.Reds])):
-                    m = ax[i].imshow(u, cmap=cmap, aspect="auto", alpha=0.5)#, vmin=sample_size.min().min(), vmax=sample_size.max().max())
-                    ax[i].set_xticks(range(u.shape[1]))
-                    ax[i].set_xticklabels(["{:.0f}%".format(int(float("{:.1f}".format(i))*100)) for i in u.columns / u.columns.max()])
-                    ax[i].set_yticks(range(u.shape[0]))
-                    ax[i].set_yticklabels(["{:.0f}%".format(int(float("{:.1f}".format(i))*100)) for i in u.index / u.index.max()])
-                    for k, row in enumerate(u.values):
-                        for j, col in enumerate(row):
-                            if pd.isnull(col):
-                                ax[i].text(j, k, "-", fontsize=12, ha="center", va="center")
-                                continue
-                            ax[i].text(j, k, "{:.3f}".format(col)[1:], ha="center", va="center", color="black", fontsize=12, fontweight="bold" if np.isclose(col, np.nanmax(u.values)) else "normal")
-                    ax[i].set_xlabel("Source Sample Size", fontsize=18, fontweight="bold")
-                    if i == 0:
-                        ax[i].set_ylabel("Target Sample Size", fontsize=18, fontweight="bold")
-                ax[0].set_title("LDA", loc="left", fontweight="bold", fontstyle="italic", fontsize=20)
-                ax[1].set_title("PLDA", loc="left", fontweight="bold", fontstyle="italic", fontsize=20)
-                for a in ax:
-                    a.tick_params(labelsize=14)
-                fig.tight_layout()
-                fig.savefig(f"{ad}{group}_{domain}_{metric}.pdf")
-                plt.close(fig)
 
 ######## Prior
 

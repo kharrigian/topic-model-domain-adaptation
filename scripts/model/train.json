@@ -14,7 +14,7 @@
     "min_doc_freq" : 10,
     "rm_top" : 250,
 
-    "topic_model_data": {"source":518, "target":518},
+    "topic_model_data": {"source":null, "target":null},
     "use_plda" : true,
     "use_labels" : false,
     "alpha" : 0.1,

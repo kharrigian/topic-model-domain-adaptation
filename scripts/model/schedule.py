@@ -6,9 +6,10 @@
 ## Grid Parameters
 USERNAME = "kharrigian"
 MEMORY = 42
+DRY_RUN = False
 
 ## Experiment Information
-EXPERIMENT_DIR = "./data/results/depression/prior/wolohan_clpsych/"
+EXPERIMENT_DIR = "./data/results/depression/test-schedule/"
 EXPERIMENT_NAME = "PLDA"
 
 ## Choose Base Configuration (Reference for Fixed Parameters)
@@ -16,16 +17,16 @@ BASE_CONFIG = "./scripts/model/train.json"
 
 ## Specifiy Parameter Search Space
 PARAMETER_GRID = {
-    "source":["wolohan"],
-    "target":["clpsych"],
+    "source":["clpsych_deduped","multitask"],
+    "target":["clpsych_deduped","multitask"],
     "use_plda":[True],
     "k_latent":[50],
     "k_per_label":[20],
     "alpha":[0.1],
     "beta":[0.1],
     "topic_model_data":{
-        "source":[0, 52, 104, 156, 208, 260, 312, 364, 416, 468, 518],
-        "target":[0, 52, 104, 156, 208, 260, 312, 364, 416, 468, 518]
+        "source":[None],
+        "target":[None]
     }
 }
 
@@ -33,6 +34,8 @@ PARAMETER_GRID = {
 ## Training Script Parameters
 PLOT_DOCUMENT_TOPIC = False
 PLOT_TOPIC_WORD = False
+K_FOLDS = 5
+EVAL_TEST = False
 
 ######################
 ### Imports
@@ -77,6 +80,11 @@ def create_configurations():
     ## Create Configurations
     configs = []
     for pg in ParameterGrid(PARAMETER_GRID):
+        ## Check Dataset
+        if pg["source"] == pg["target"]:
+            continue
+        if set([pg["source"],pg["target"]]) == set(["rsdd","smhd"]):
+            continue
         ## Copy Base
         pg_config = deepcopy(base_config)
         ## Topic Model Data
@@ -106,7 +114,8 @@ def create_configurations():
 
 def write_bash_script(temp_dir,
                       config_id,
-                      config):
+                      config,
+                      fold=None):
     """
 
     """
@@ -129,23 +138,30 @@ def write_bash_script(temp_dir,
     cd /home/kharrigian/
     ## Activate Conda Environment
     source .bashrc
-    conda activate bayesian-stats-final
+    conda activate plda-da
     ## Move To Run Directory
-    cd /export/fs03/a08/kharrigian/topic-model-domain-adaptation/
+    cd /export/c01/kharrigian/topic-model-domain-adaptation/
     ## Run Script
     python ./scripts/model/train.py \
     {} \
     {} \
     {} \
+    {} \
+    {}
     """.format(f"{EXPERIMENT_NAME}_{config_id}",
                f"{EXPERIMENT_NAME}_{config_id}",
                MEMORY,
                MEMORY,
                config_filename,
                {True:"--plot_document_topic",False:""}.get(PLOT_DOCUMENT_TOPIC),
-               {True:"--plot_topic_word",False:""}.get(PLOT_TOPIC_WORD)
+               {True:"--plot_topic_word",False:""}.get(PLOT_TOPIC_WORD),
+               "--fold {}".format(fold) if fold is not None else "",
+               {True:"--evaluate_test",False:""}.get(EVAL_TEST)
                ).strip()
-    bash_filename = config_filename.replace(".json",".sh")
+    if fold is None:
+        bash_filename = config_filename.replace(".json",".sh")
+    else:
+        bash_filename = config_filename.replace(".json",f"_fold-{fold}.sh")
     with open(bash_filename,"w") as the_file:
         the_file.write("\n".join([i.lstrip() for i in script.split("\n")]))
     return bash_filename
@@ -156,16 +172,29 @@ def main():
     """
     ## Get Configurations
     configs = create_configurations()
+    ## Cross Validation Folds
+    if K_FOLDS is not None:
+        folds = list(range(1, K_FOLDS+1))
+    else:
+        folds = [None]
     ## Create Temporary Directory
     temp_dir = "./temp_{}/".format(uuid4())
     _ = os.mkdir(temp_dir)
     ## Write Files
     bash_files = []
     for cid, c in configs:
-        c_filename = write_bash_script(temp_dir=temp_dir,
-                                       config_id=cid,
-                                       config=c)
-        bash_files.append(c_filename)
+        for f in folds:
+            c_filename = write_bash_script(temp_dir=temp_dir,
+                                           config_id=cid,
+                                           config=c,
+                                           fold=f)
+            bash_files.append(c_filename)
+    ## Dry Run Check
+    if DRY_RUN:
+        LOGGER.info("Identified {} Jobs".format(len(bash_files)))
+        _ = os.system("rm -rf {}".format(temp_dir))
+        LOGGER.info("Dry run complete. Exiting.")
+        exit()
     ## Schedule Jobs
     for job_file in bash_files:
         qsub_call = f"qsub {job_file}"

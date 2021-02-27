@@ -28,6 +28,7 @@ from mhlib.util.logging import initialize_logger
 from sklearn import metrics
 from sklearn.preprocessing import normalize
 from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold
 
 #################
 ### Globals
@@ -66,6 +67,12 @@ def parse_arguments():
     parser.add_argument("--evaluate_test",
                         action="store_true",
                         default=False)
+    parser.add_argument("--fold",
+                        type=int,
+                        default=None)
+    parser.add_argument("--k_folds",
+                        type=int,
+                        default=5)
     ## Parse Arguments
     args = parser.parse_args()
     ## Check Config
@@ -427,9 +434,10 @@ def main():
     ## Load Configuration
     config = Config(filepath=args.config)
     ## Create Output Directories
+    basedir = f"{config.output_dir}/" if args.fold is None else f"{config.output_dir}/fold-{args.fold}/".replace("//","/")
     dirs = ["topic_model/document_topic/","topic_model/topic_word/","classification/"]
     for d in dirs:
-        ddir = f"{config.output_dir}/{d}"
+        ddir = f"{basedir}{d}"
         if not os.path.exists(ddir):
             _ = os.makedirs(ddir)
     ## Cache Configuration
@@ -449,26 +457,52 @@ def main():
     Xs_train, Xs_dev, Xs_test, ys_train, ys_dev, ys_test = split_data(X_source, y_source, splits_source)
     Xt_train, Xt_dev, Xt_test, yt_train, yt_dev, yt_test = split_data(X_target, y_target, splits_target)
     ## Sampling 
-    LOGGER.info("Splitting Source Data")
+    LOGGER.info("Sampling Source Data")
     Xs_train, ys_train = sample_data(Xs_train, ys_train, config.source_class_ratio.get("train"), config.source_sample_size.get("train"))
     Xs_dev, ys_dev = sample_data(Xs_dev, ys_dev, config.source_class_ratio.get("dev"), config.source_sample_size.get("dev"))
     Xs_test, ys_test = sample_data(Xs_test, ys_test, config.source_class_ratio.get("test"), config.source_sample_size.get("test"))
-    LOGGER.info("Splitting Target Data")
+    LOGGER.info("Sampling Target Data")
     Xt_train, yt_train = sample_data(Xt_train, yt_train, config.target_class_ratio.get("train"), config.target_sample_size.get("train"))
     Xt_dev, yt_dev = sample_data(Xt_dev, yt_dev, config.target_class_ratio.get("dev"), config.target_sample_size.get("dev"))
     Xt_test, yt_test = sample_data(Xt_test, yt_test, config.target_class_ratio.get("test"), config.target_sample_size.get("test"))
+    ## Cross Validation
+    if args.fold is not None:
+        LOGGER.info(f"Isolating K-Fold Data (Fold {args.fold})")
+        ## Initialize Splitter
+        splitter = StratifiedKFold(n_splits=args.k_folds,
+                                   shuffle=True,
+                                   random_state=config.random_seed)
+        ## Merge Data
+        Xs_all = sparse.vstack([Xs_train, Xs_dev])
+        Xt_all = sparse.vstack([Xt_train, Xt_dev])
+        ys_all = np.hstack([ys_train,ys_dev])
+        yt_all = np.hstack([yt_train,yt_dev])
+        ## Get Train and Dev Splits for the Fold
+        splits_source = list(splitter.split(Xs_all, ys_all))[args.fold-1]
+        splits_target = list(splitter.split(Xt_all, yt_all))[args.fold-1]
+        ## Isolate Relevant Data
+        Xs_train, ys_train = Xs_all[splits_source[0]], ys_all[splits_source[0]]
+        Xs_dev, ys_dev = Xs_all[splits_source[1]], ys_all[splits_source[1]]
+        Xt_train, yt_train = Xt_all[splits_target[0]], yt_all[splits_target[0]]
+        Xt_dev, yt_dev = Xt_all[splits_target[1]], yt_all[splits_target[1]]
     ###################
     ### Corpus Generation
     ###################
     ## Sample Topic Model Training Masks
-    if config.topic_model_data.get("source") > Xs_train.shape[0]:
-        LOGGER.warning("Requested Source Topic Model Train Size Greater than Available Data. Downsizing.")
-        config.topic_model_data["source"] = Xs_train.shape[0]
-    if config.topic_model_data.get("target") > Xt_train.shape[0]:
-        LOGGER.warning("Requested Target Topic Model Train Size Greater than Available Data. Downsizing.")
-        config.topic_model_data["target"] = Xt_train.shape[0]
-    source_mask = sorted(np.random.choice(Xs_train.shape[0], size=config.topic_model_data.get("source"), replace=False))
-    target_mask = sorted(np.random.choice(Xt_train.shape[0], size=config.topic_model_data.get("target"), replace=False))
+    if config.topic_model_data.get("source") is not None:
+        if config.topic_model_data.get("source") > Xs_train.shape[0]:
+            LOGGER.warning("Requested Source Topic Model Train Size Greater than Available Data. Downsizing.")
+            config.topic_model_data["source"] = Xs_train.shape[0]
+        source_mask = sorted(np.random.choice(Xs_train.shape[0], size=config.topic_model_data.get("source"), replace=False))
+    else:
+        source_mask = list(range(Xs_train.shape[0]))
+    if config.topic_model_data.get("target") is not None:
+        if config.topic_model_data.get("target") > Xt_train.shape[0]:
+            LOGGER.warning("Requested Target Topic Model Train Size Greater than Available Data. Downsizing.")
+            config.topic_model_data["target"] = Xt_train.shape[0]
+        target_mask = sorted(np.random.choice(Xt_train.shape[0], size=config.topic_model_data.get("target"), replace=False))
+    else:
+        target_mask = list(range(Xt_train.shape[0]))
     ## Initialize Corpus
     LOGGER.info("Generating Training Corpus (Topic-Model Learning)")
     train_corpus, train_missing = generate_corpus(Xs_train, vocab, label="source", mask=source_mask)
@@ -545,7 +579,7 @@ def main():
                 test_dist, _ = model.infer(test_corpus, iter=config.n_sample, together=False)
                 theta_test[epoch] = np.vstack([t.get_topic_dist() for t in test_dist])
     ## Cache Model Summary
-    _ = model.summary(topic_word_top_n=20, file=open(f"{config.output_dir}/topic_model/model_summary.txt","w"))
+    _ = model.summary(topic_word_top_n=20, file=open(f"{basedir}/topic_model/model_summary.txt","w"))
     ################
     ### Topic Model Diagnostics
     ################
@@ -557,7 +591,7 @@ def main():
     ax.set_xlabel("MCMC Iteration", fontweight="bold")
     ax.set_ylabel("Log-Likelihood Per Word", fontweight="bold")
     fig.tight_layout()
-    fig.savefig(f"{config.output_dir}/topic_model/log_likelihood_train{args.plot_fmt}",dpi=300)
+    fig.savefig(f"{basedir}/topic_model/log_likelihood_train{args.plot_fmt}",dpi=300)
     plt.close(fig)
     ## Evaluate Topics
     for k in range(model.k):
@@ -572,14 +606,14 @@ def main():
                                               model=model,
                                               use_plda=config.use_plda,
                                               n_burn=0)
-    fig.savefig(f"{config.output_dir}/topic_model/average_topic_distribution_train{args.plot_fmt}",dpi=300)
+    fig.savefig(f"{basedir}/topic_model/average_topic_distribution_train{args.plot_fmt}",dpi=300)
     plt.close(fig)
     ## Show Average Topic Distribution (Development Data)
     fig, ax = plot_average_topic_distribution(theta=theta_dev[dev_infer_mask],
                                               model=model,
                                               use_plda=config.use_plda,
                                               n_burn=0)
-    fig.savefig(f"{config.output_dir}/topic_model/average_topic_distribution_development{args.plot_fmt}",dpi=300)
+    fig.savefig(f"{basedir}/topic_model/average_topic_distribution_development{args.plot_fmt}",dpi=300)
     plt.close(fig)
     ## Show Trace for a Document Topic Distribution (Random Sample)
     if args.plot_document_topic:
@@ -587,7 +621,7 @@ def main():
         for doc_n in np.random.choice(theta_train.shape[1], 10):
             fig, ax = plot_document_topic_distribution(doc=doc_n,
                                                        theta=theta_train[dev_infer_mask])
-            fig.savefig(f"{config.output_dir}/topic_model/document_topic/train_{doc_n}{args.plot_fmt}",dpi=300)
+            fig.savefig(f"{basedir}/topic_model/document_topic/train_{doc_n}{args.plot_fmt}",dpi=300)
             plt.close(fig)
     ## Show Trace for a Topic Word Distribution
     if args.plot_topic_word:
@@ -600,7 +634,7 @@ def main():
                                                    n_trace=30,
                                                    n_top=30,
                                                    n_burn=config.n_burn)
-            fig.savefig(f"{config.output_dir}/topic_model/topic_word/topic_{topic}{args.plot_fmt}",dpi=300)
+            fig.savefig(f"{basedir}/topic_model/topic_word/topic_{topic}{args.plot_fmt}",dpi=300)
             plt.close(fig)
     ################
     ### Depression Classifier Training
@@ -753,12 +787,14 @@ def main():
                         ax[i,j].set_xlim(0,1)
                         ax[i,j].set_ylim(0,1)
                 fig.tight_layout()
-                fig.savefig(f"{config.output_dir}/classification/roc_auc_{average_representation}_{norm}{args.plot_fmt}",dpi=300)
+                fig.savefig(f"{basedir}/classification/roc_auc_{average_representation}_{norm}{args.plot_fmt}",dpi=300)
                 plt.close(fig)
     ## Format Scores
     LOGGER.info("Caching Scores")
     all_scores_df = pd.DataFrame(all_scores)
-    all_scores_df.to_csv(f"{config.output_dir}/classification/scores.csv",index=False)
+    if args.fold is not None:
+        all_scores_df["fold"] = args.fold
+    all_scores_df.to_csv(f"{basedir}/classification/scores.csv",index=False)
     ## Script Complete
     LOGGER.info("Done!")
 

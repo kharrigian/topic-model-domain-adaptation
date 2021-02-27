@@ -305,7 +305,7 @@ def get_dataset_splits(label_map,
     if random_state is not None:
         np.random.seed(random_state)
     ## Case 1: No Splits
-    if "split" not in label_map.columns:
+    if "split" not in label_map.columns or label_map["split"].unique()[0] == "all":
         test_ind = np.random.choice(label_map.index,
                                     size=int(label_map.shape[0] * test_size),
                                     replace=False)

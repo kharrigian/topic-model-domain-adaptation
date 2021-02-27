@@ -4,11 +4,11 @@
 #################
 
 ## Output Directory
-output_dir = "./plots/distributions/clpsych_wolohan/"
+output_dir = "./plots/distributions/test/"
 
 ## Choose Source and Target Datasets
 source = "clpsych"
-target = "wolohan"
+target = "multitask"
 
 ## Analysis Parameters
 min_term_freq = 5
@@ -276,7 +276,7 @@ def sample_data(X,
     return X, y
 
 ## Helper Function for Converting Count Data
-term_expansion = lambda x, vocab: flatten([[t]*int(i) for i, t in zip(x.toarray()[0], vocab)])
+term_expansion = lambda x, vocab: flatten([[vocab[i]] * int(x[0,i]) for i in x.nonzero()[1]])
 
 def generate_corpus(Xs, Xt, vocab, source=True, target=True, ys=None, yt=None):
     """
@@ -557,8 +557,7 @@ for epoch in tqdm(range(0, n_iter), desc="MCMC Iteration", file=sys.stdout):
     ll[epoch] = model.ll_per_word
     ## Cache Parameters
     phi[epoch] = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
-    epoch_theta_train = [model.infer(d,iter=100)[0] for d in model.docs]
-    theta_train[epoch] = np.vstack(epoch_theta_train)
+    theta_train[epoch] = np.vstack([d.get_topic_dist() for d in model.docs])
 
 ## Cache Model
 _ = model.summary(topic_word_top_n=20, file=open(f"{output_dir}model_summary.txt","w"))

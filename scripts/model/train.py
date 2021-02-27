@@ -115,7 +115,11 @@ def load_data(data_dir):
     terms = [i.strip() for i in open(f"{data_dir}vocab.txt","r")]
     return X, y, splits, filenames, users, terms
 
-def align_data(X_source, X_target, vocab_source, vocab_target, how="outer"):
+def align_data(X_source,
+               X_target,
+               vocab_source,
+               vocab_target,
+               how="outer"):
     """
 
     """
@@ -150,7 +154,9 @@ def align_data(X_source, X_target, vocab_source, vocab_target, how="outer"):
     vocab = replace_emojis(vocab)
     return Xs.tocsr(), Xt.tocsr(), vocab
 
-def split_data(X, y, splits):
+def split_data(X,
+               y,
+               splits):
     """
 
     """
@@ -165,48 +171,39 @@ def split_data(X, y, splits):
     return X_train, X_dev, X_test, y_train, y_dev, y_test
 
 ## Helper Function for Converting Count Data
-term_expansion = lambda x, vocab: flatten([[t]*int(i) for i, t in zip(x.toarray()[0], vocab)])
+term_expansion = lambda x, vocab: flatten([[vocab[i]] * int(x[0,i]) for i in x.nonzero()[1]])
 
-def generate_corpus(Xs, Xt, vocab, source=True, target=True, source_mask=None, target_mask=None):
+def generate_corpus(X,
+                    vocab,
+                    label,
+                    mask=None,
+                    corpus=None,
+                    missing={}):
     """
 
     """
-    ## Format Masks
-    if source_mask is not None:
-        source_mask = set(source_mask)
-    if target_mask is not None:
-        target_mask = set(target_mask)
-    ## Start Generation
-    corpus = tp.utils.Corpus()
-    missing = {"source":[],"target":[]}
-    for i, x in tqdm(enumerate(Xs), total=Xs.shape[0], desc="Adding Source Documents", file=sys.stdout):
-        if source_mask is not None and i not in source_mask:
-            missing["source"].append(i)
+    ## Format Mask
+    if mask is not None:
+        mask = set(mask)
+    ## Initialize Corpus (if Necessary)
+    if corpus is None:
+        corpus = tp.utils.Corpus()
+    ## Initialize Missing Cache
+    missing[label] = []
+    ## Add Documents Incrementally
+    for i, x in tqdm(enumerate(X), total=X.shape[0], desc="Adding Documents", file=sys.stdout):
+        if mask is not None and i not in mask:
+            missing[label].append(i)
             continue
-        if source:
-            x_flat = term_expansion(x, vocab)
-        else:
-            x_flat = []
-        if len(x_flat) == 0:
-            missing["source"].append(i)
+        if x.getnnz() == 0:
+            missing[label].append(i)
             continue
-        corpus.add_doc(term_expansion(x, vocab),labels=["source"])
-    for i, x in tqdm(enumerate(Xt), total=Xt.shape[0], desc="Adding Target Documents", file=sys.stdout):
-        if target_mask is not None and i not in target_mask:
-            missing["target"].append(i)
-            continue
-        if target:
-            x_flat = term_expansion(x, vocab)
-        else:
-            x_flat = []
-        if len(x_flat) == 0:
-            missing["target"].append(i)
-            continue
-        labels = ["target"]
-        corpus.add_doc(x_flat,labels=["target"])
+        x_flat = term_expansion(x, vocab)
+        corpus.add_doc(x_flat,labels=[label])
     return corpus, missing
 
-def which_plda_topic(topic_n, plda_model):
+def which_plda_topic(topic_n,
+                     plda_model):
     """
 
     """
@@ -328,7 +325,9 @@ def plot_topic_word_distribution(topic,
     fig.subplots_adjust(top=.92)
     return fig, ax
 
-def get_scores(y_true, y_score, threshold=0.5):
+def get_scores(y_true,
+               y_score,
+               threshold=0.5):
     """
 
     """
@@ -406,6 +405,10 @@ def sample_data(X,
     """
 
     """
+    ## Check Size
+    if sample_size is not None and sample_size > X.shape[0]:
+        LOGGER.warning("Requested sample size ({}) greater than available. Reducing to max ({}).".format(sample_size, X.shape[0]))
+        sample_size = X.shape[0]
     ## Rebalance Data
     X, y = _rebalance(X, y, class_ratio, random_seed)
     ## Downsample Data
@@ -446,9 +449,11 @@ def main():
     Xs_train, Xs_dev, Xs_test, ys_train, ys_dev, ys_test = split_data(X_source, y_source, splits_source)
     Xt_train, Xt_dev, Xt_test, yt_train, yt_dev, yt_test = split_data(X_target, y_target, splits_target)
     ## Sampling 
+    LOGGER.info("Splitting Source Data")
     Xs_train, ys_train = sample_data(Xs_train, ys_train, config.source_class_ratio.get("train"), config.source_sample_size.get("train"))
     Xs_dev, ys_dev = sample_data(Xs_dev, ys_dev, config.source_class_ratio.get("dev"), config.source_sample_size.get("dev"))
     Xs_test, ys_test = sample_data(Xs_test, ys_test, config.source_class_ratio.get("test"), config.source_sample_size.get("test"))
+    LOGGER.info("Splitting Target Data")
     Xt_train, yt_train = sample_data(Xt_train, yt_train, config.target_class_ratio.get("train"), config.target_sample_size.get("train"))
     Xt_dev, yt_dev = sample_data(Xt_dev, yt_dev, config.target_class_ratio.get("dev"), config.target_sample_size.get("dev"))
     Xt_test, yt_test = sample_data(Xt_test, yt_test, config.target_class_ratio.get("test"), config.target_sample_size.get("test"))
@@ -457,39 +462,27 @@ def main():
     ###################
     ## Sample Topic Model Training Masks
     if config.topic_model_data.get("source") > Xs_train.shape[0]:
-        raise ValueError("Requested Source Topic Model Train Size Greater than Available Data")
+        LOGGER.warning("Requested Source Topic Model Train Size Greater than Available Data. Downsizing.")
+        config.topic_model_data["source"] = Xs_train.shape[0]
     if config.topic_model_data.get("target") > Xt_train.shape[0]:
-        raise ValueError("Requested Target Topic Model Train Size Greater than Available Data")
+        LOGGER.warning("Requested Target Topic Model Train Size Greater than Available Data. Downsizing.")
+        config.topic_model_data["target"] = Xt_train.shape[0]
     source_mask = sorted(np.random.choice(Xs_train.shape[0], size=config.topic_model_data.get("source"), replace=False))
     target_mask = sorted(np.random.choice(Xt_train.shape[0], size=config.topic_model_data.get("target"), replace=False))
     ## Initialize Corpus
     LOGGER.info("Generating Training Corpus (Topic-Model Learning)")
-    train_corpus, train_missing = generate_corpus(Xs_train,
-                                                  Xt_train,
-                                                  vocab,
-                                                  source=True,
-                                                  target=True,
-                                                  source_mask=source_mask,
-                                                  target_mask=target_mask)
+    train_corpus, train_missing = generate_corpus(Xs_train, vocab, label="source", mask=source_mask)
+    train_corpus, train_missing = generate_corpus(Xt_train, vocab, label="target", mask=target_mask, corpus=train_corpus, missing=train_missing)
     LOGGER.info("Generating Training Corpus (Inference)")
-    train_corpus_infer, train_missing_infer = generate_corpus(Xs_train,
-                                                              Xt_train,
-                                                              vocab,
-                                                              source=True,
-                                                              target=True)
+    train_corpus_infer, train_missing_infer = generate_corpus(Xs_train, vocab, label="source", missing={})
+    train_corpus_infer, train_missing_infer = generate_corpus(Xt_train, vocab, label="target", corpus=train_corpus_infer, missing=train_missing_infer)
     LOGGER.info("Generating Development Corpus (Inference)")
-    development_corpus, dev_missing = generate_corpus(Xs_dev,
-                                                      Xt_dev,
-                                                      vocab,
-                                                      source=True,
-                                                      target=True)
+    development_corpus, dev_missing = generate_corpus(Xs_dev, vocab, label="source", missing={})
+    development_corpus, dev_missing = generate_corpus(Xt_dev, vocab, label="target", corpus=development_corpus, missing=dev_missing)
     if args.evaluate_test:
         LOGGER.info("Generating Test Corpus (Inference)")
-        test_corpus, test_missing = generate_corpus(Xs_test,
-                                                    Xt_test,
-                                                    vocab,
-                                                    source=True,
-                                                    target=True)
+        test_corpus, test_missing = generate_corpus(Xs_test, vocab, label="source", missing={})
+        test_corpus, test_missing = generate_corpus(Xt_test, vocab, label="target", corpus=test_corpus, missing=test_missing)
     ###################
     ### Topic Model (Training)
     ###################
@@ -513,23 +506,12 @@ def main():
                             seed=config.random_seed)
     ## Initialize Sampler
     model.train(1, workers=8)
-    ## Generate Development Documents
-    if config.use_plda:
-        train_docs = [model.make_doc([train_corpus_infer._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(train_corpus_infer._docs, total=len(train_corpus_infer._docs), desc="Training Corpus Transformation", file=sys.stdout)]
-        dev_docs = [model.make_doc([development_corpus._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(development_corpus._docs, total=len(development_corpus._docs), desc="Development Corpus Transformation", file=sys.stdout)]
-        if args.evaluate_test:
-            test_docs = [model.make_doc([test_corpus._vocab.id2word[i] for i in d[0]], **d[1]) for d in tqdm(test_corpus._docs, total=len(test_corpus._docs), desc="Test Corpus Transformation", file=sys.stdout)]
-    else:
-        train_docs = [model.make_doc([train_corpus_infer._vocab.id2word[i] for i in d[0]]) for d in tqdm(train_corpus_infer._docs, total=len(train_corpus_infer._docs), desc="Training Corpus Transformation", file=sys.stdout)]
-        dev_docs = [model.make_doc([development_corpus._vocab.id2word[i] for i in d[0]]) for d in tqdm(development_corpus._docs, total=len(development_corpus._docs), desc="Development Corpus Transformation", file=sys.stdout)]
-        if args.evaluate_test:
-            test_docs =  [model.make_doc([test_corpus._vocab.id2word[i] for i in d[0]]) for d in tqdm(test_corpus._docs, total=len(test_corpus._docs), desc="Test Corpus Transformation", file=sys.stdout)]
     ## Corpus-Updated Parameters
     V = model.num_vocabs
     N = len(model.docs)
-    N_train = len(train_docs)
-    N_dev = len(dev_docs)
-    N_test = len(test_docs) if args.evaluate_test else 0
+    N_train = len(train_corpus_infer)
+    N_dev = len(development_corpus)
+    N_test = len(test_corpus) if args.evaluate_test else 0
     K = model.k
     ## Gibbs Cache
     ll = np.zeros(config.n_iter)
@@ -547,16 +529,21 @@ def main():
         ll[epoch] = model.ll_per_word
         ## Cache Parameters
         phi[epoch] = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
-        theta[epoch] = np.vstack([model.infer(d,iter=config.n_sample)[0] for d in model.docs])
-        if epoch % config.infer_sample_rate == 0 and epoch > config.n_burn:
+        theta[epoch] = np.vstack([d.get_topic_dist() for d in model.docs])
+        ## Make Inferences Regularly
+        if epoch % config.infer_sample_rate == 0 and epoch >= config.n_burn:
+            ## Update Mask
             dev_infer_mask.append(epoch)
-            if N_train == N:
-                theta_train[epoch] = theta[epoch]
-            else:
-                theta_train[epoch] = np.vstack(model.infer(train_docs,iter=config.n_sample,together=False)[0])
-            theta_dev[epoch] = np.vstack(model.infer(dev_docs,iter=config.n_sample,together=False)[0])
+            ## Training Inference
+            train_dist, _ = model.infer(train_corpus_infer, iter=config.n_sample, together=False)
+            theta_train[epoch] = np.vstack([t.get_topic_dist() for t in train_dist])
+            ## Development Inference
+            dev_dist, _ = model.infer(development_corpus, iter=config.n_sample, together=False)
+            theta_dev[epoch] = np.vstack([d.get_topic_dist() for d in dev_dist])
+            ## Test Inference
             if args.evaluate_test:
-                theta_test[epoch] = np.vstack(model.infer(test_docs,iter=config.n_sample,together=False)[0])
+                test_dist, _ = model.infer(test_corpus, iter=config.n_sample, together=False)
+                theta_test[epoch] = np.vstack([t.get_topic_dist() for t in test_dist])
     ## Cache Model Summary
     _ = model.summary(topic_word_top_n=20, file=open(f"{config.output_dir}/topic_model/model_summary.txt","w"))
     ################
@@ -605,7 +592,7 @@ def main():
     ## Show Trace for a Topic Word Distribution
     if args.plot_topic_word:
         LOGGER.info("Plotting Topic Word Distributions")
-        for topic in tqdm(range(K), total=K, desc="Topic Word Dist.", file=sys.stdout):
+        for topic in tqdm(range(K), total=K, desc="Topic Word Distribution", file=sys.stdout):
             fig, ax = plot_topic_word_distribution(topic=topic,
                                                    phi=phi,
                                                    model=model,
@@ -694,9 +681,9 @@ def main():
                 for x in tqdm(X_train, desc="Fitting Models", file=sys.stdout):
                     ## Fit Classifier
                     logit = LogisticRegression(C=C,
-                                            random_state=42,
-                                            max_iter=config.max_iter,
-                                            solver='lbfgs')
+                                              random_state=42,
+                                              max_iter=config.max_iter,
+                                              solver='lbfgs')
                     logit.fit(x[source_train_ind], y_train[source_train_ind])
                     ## Get Predictions
                     models.append(logit)

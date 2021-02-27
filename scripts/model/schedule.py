@@ -147,6 +147,7 @@ def write_bash_script(temp_dir,
     {} \
     {} \
     {} \
+    {} \
     {}
     """.format(f"{EXPERIMENT_NAME}_{config_id}",
                f"{EXPERIMENT_NAME}_{config_id}",
@@ -156,6 +157,7 @@ def write_bash_script(temp_dir,
                {True:"--plot_document_topic",False:""}.get(PLOT_DOCUMENT_TOPIC),
                {True:"--plot_topic_word",False:""}.get(PLOT_TOPIC_WORD),
                "--fold {}".format(fold) if fold is not None else "",
+               "--k_folds {}".format(K_FOLDS) if fold is not None else "",
                {True:"--evaluate_test",False:""}.get(EVAL_TEST)
                ).strip()
     if fold is None:

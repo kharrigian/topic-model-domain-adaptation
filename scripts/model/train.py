@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import argparse
+from multiprocessing import Pool
 
 ## External Libraries
 import demoji
@@ -73,6 +74,9 @@ def parse_arguments():
     parser.add_argument("--k_folds",
                         type=int,
                         default=5)
+    parser.add_argument("--num_jobs",
+                        type=int,
+                        default=8)
     ## Parse Arguments
     args = parser.parse_args()
     ## Check Config
@@ -130,6 +134,8 @@ def align_data(X_source,
     """
 
     """
+    ## Make Vocabulary a Global Resource
+    global vocab
     ## Mappings
     source2ind = dict(zip(vocab_source, range(len(vocab_source))))
     target2ind = dict(zip(vocab_target, range(len(vocab_target))))
@@ -178,14 +184,27 @@ def split_data(X,
     return X_train, X_dev, X_test, y_train, y_dev, y_test
 
 ## Helper Function for Converting Count Data
-term_expansion = lambda x, vocab: flatten([[vocab[i]] * int(x[0,i]) for i in x.nonzero()[1]])
+term_expansion = lambda x, v: flatten([[v[i]] * int(x[0,i]) for i in x.nonzero()[1]])
+
+def count_to_doc(x):
+    """
+
+    """
+    ## Split Input
+    i, x = x
+    ## Check Size
+    if x.getnnz() == 0:
+        return (i, None)
+    ## Expand and Return
+    x_flat = term_expansion(x, vocab)
+    return (i, x_flat)
 
 def generate_corpus(X,
-                    vocab,
                     label,
                     mask=None,
                     corpus=None,
-                    missing={}):
+                    missing={},
+                    num_jobs=8):
     """
 
     """
@@ -197,16 +216,23 @@ def generate_corpus(X,
         corpus = tp.utils.Corpus()
     ## Initialize Missing Cache
     missing[label] = []
+    ## Make Documents
+    mp = Pool(num_jobs)
+    docs = list(tqdm(mp.imap_unordered(count_to_doc, enumerate(X)),
+                     total=X.shape[0],
+                     desc="Creating Documents",
+                     file=sys.stdout))
+    docs = [d[1] for d in sorted(docs, key=lambda i: i[0])]
+    _ = mp.close()
     ## Add Documents Incrementally
-    for i, x in tqdm(enumerate(X), total=X.shape[0], desc="Adding Documents", file=sys.stdout):
+    for i, d in tqdm(enumerate(docs), total=len(docs), desc="Adding Documents", file=sys.stdout):
         if mask is not None and i not in mask:
             missing[label].append(i)
             continue
-        if x.getnnz() == 0:
+        if d is None:
             missing[label].append(i)
             continue
-        x_flat = term_expansion(x, vocab)
-        corpus.add_doc(x_flat,labels=[label])
+        corpus.add_doc(d,labels=[label])
     return corpus, missing
 
 def which_plda_topic(topic_n,
@@ -449,11 +475,14 @@ def main():
     ### Data Preparation
     ###################
     ## Load Data
+    LOGGER.info("Loading Processed Datasets")
     X_source, y_source, splits_source, filenames_source, users_source, terms_source = load_data(f"{DEPRESSION_DATA_DIR}{config.source}/")
     X_target, y_target, splits_target, filenames_target, users_target, terms_target = load_data(f"{DEPRESSION_DATA_DIR}{config.target}/")
     ## Align Vocabulary Spaces
+    LOGGER.info("Aligning Vocabularies")
     X_source, X_target, vocab = align_data(X_source, X_target, terms_source, terms_target, config.vocab_alignment)
     ## Split Data
+    LOGGER.info("Separating Datasets by Split")
     Xs_train, Xs_dev, Xs_test, ys_train, ys_dev, ys_test = split_data(X_source, y_source, splits_source)
     Xt_train, Xt_dev, Xt_test, yt_train, yt_dev, yt_test = split_data(X_target, y_target, splits_target)
     ## Sampling 
@@ -505,18 +534,18 @@ def main():
         target_mask = list(range(Xt_train.shape[0]))
     ## Initialize Corpus
     LOGGER.info("Generating Training Corpus (Topic-Model Learning)")
-    train_corpus, train_missing = generate_corpus(Xs_train, vocab, label="source", mask=source_mask)
-    train_corpus, train_missing = generate_corpus(Xt_train, vocab, label="target", mask=target_mask, corpus=train_corpus, missing=train_missing)
+    train_corpus, train_missing = generate_corpus(Xs_train, label="source", mask=source_mask, num_jobs=args.num_jobs)
+    train_corpus, train_missing = generate_corpus(Xt_train, label="target", mask=target_mask, corpus=train_corpus, missing=train_missing, num_jobs=args.num_jobs)
     LOGGER.info("Generating Training Corpus (Inference)")
-    train_corpus_infer, train_missing_infer = generate_corpus(Xs_train, vocab, label="source", missing={})
-    train_corpus_infer, train_missing_infer = generate_corpus(Xt_train, vocab, label="target", corpus=train_corpus_infer, missing=train_missing_infer)
+    train_corpus_infer, train_missing_infer = generate_corpus(Xs_train, label="source", missing={}, num_jobs=args.num_jobs)
+    train_corpus_infer, train_missing_infer = generate_corpus(Xt_train, label="target", corpus=train_corpus_infer, missing=train_missing_infer, num_jobs=args.num_jobs)
     LOGGER.info("Generating Development Corpus (Inference)")
-    development_corpus, dev_missing = generate_corpus(Xs_dev, vocab, label="source", missing={})
-    development_corpus, dev_missing = generate_corpus(Xt_dev, vocab, label="target", corpus=development_corpus, missing=dev_missing)
+    development_corpus, dev_missing = generate_corpus(Xs_dev, label="source", missing={}, num_jobs=args.num_jobs)
+    development_corpus, dev_missing = generate_corpus(Xt_dev, label="target", corpus=development_corpus, missing=dev_missing, num_jobs=args.num_jobs)
     if args.evaluate_test:
         LOGGER.info("Generating Test Corpus (Inference)")
-        test_corpus, test_missing = generate_corpus(Xs_test, vocab, label="source", missing={})
-        test_corpus, test_missing = generate_corpus(Xt_test, vocab, label="target", corpus=test_corpus, missing=test_missing)
+        test_corpus, test_missing = generate_corpus(Xs_test, label="source", missing={}, num_jobs=args.num_jobs)
+        test_corpus, test_missing = generate_corpus(Xt_test, label="target", corpus=test_corpus, missing=test_missing, num_jobs=args.num_jobs)
     ###################
     ### Topic Model (Training)
     ###################
@@ -539,7 +568,7 @@ def main():
                             corpus=train_corpus,
                             seed=config.random_seed)
     ## Initialize Sampler
-    model.train(1, workers=8)
+    model.train(1, workers=args.num_jobs)
     ## Corpus-Updated Parameters
     V = model.num_vocabs
     N = len(model.docs)
@@ -558,14 +587,14 @@ def main():
     dev_infer_mask = []
     for epoch in tqdm(range(0, config.n_iter), desc="MCMC Iteration", file=sys.stdout):
         ## Run Sample Epoch
-        model.train(1, workers=8)
+        model.train(1, workers=args.num_jobs)
         ## Examine Data Fit
         ll[epoch] = model.ll_per_word
         ## Cache Parameters
         phi[epoch] = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
         theta[epoch] = np.vstack([d.get_topic_dist() for d in model.docs])
         ## Make Inferences Regularly
-        if epoch % config.infer_sample_rate == 0 and epoch >= config.n_burn:
+        if (epoch + 1) >= config.n_burn and (epoch + 1) % config.infer_sample_rate == 0:
             ## Update Mask
             dev_infer_mask.append(epoch)
             ## Training Inference

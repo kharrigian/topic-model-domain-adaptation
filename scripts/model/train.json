@@ -1,5 +1,5 @@
 {
-    "output_dir":"./data/results/depression/test/",
+    "output_dir":"./data/results/depression/",
 
     "source" : "clpsych_deduped",
     "target" : "multitask",
@@ -7,8 +7,8 @@
     "source_class_ratio":{"train":[1,1], "dev":[1,1], "test":[1,1]},
     "target_class_ratio":{"train":[1,1], "dev":[1,1], "test":[1,1]},
 
-    "source_sample_size" : {"train":518, "dev":124, "test":300},
-    "target_sample_size" : {"train":518, "dev":124, "test":300},
+    "source_sample_size" : {"train":null, "dev":null, "test":null},
+    "target_sample_size" : {"train":null, "dev":null, "test":null},
 
     "vocab_alignment" : "outer",
     "min_doc_freq" : 10,
@@ -20,7 +20,7 @@
     "alpha" : 0.1,
     "beta" : 0.1,
     "n_iter" : 1000,
-    "n_burn" : 250,
+    "n_burn" : 300,
     "n_sample": 100,
     "k_latent" : 10,
     "k_per_label" : 10, 
@@ -32,4 +32,3 @@
     "norm":["l2"],
 
     "random_seed": 42
-}

@@ -77,11 +77,16 @@ def parse_arguments():
     parser.add_argument("--num_jobs",
                         type=int,
                         default=8)
+    parser.add_argument("--cache_parameters",
+                        action="store_true",
+                        default=False)
     ## Parse Arguments
     args = parser.parse_args()
     ## Check Config
     if not os.path.exists(args.config):
         raise FileNotFoundError(f"Config file does not exist: {args.config}")
+    if (args.plot_document_topic or args.plot_topic_word) and not args.cache_parameters:
+        raise ValueError("Plotting requires parameter caching turned on.")
     return args
 
 def replace_emojis(features):
@@ -448,6 +453,15 @@ def sample_data(X,
     X, y = _downsample(X, y, sample_size, random_seed)
     return X, y
 
+def valid_sampler(config):
+    """
+
+    """
+    for epoch in range(0, config.n_iter):
+        if (epoch + 1) >= config.n_burn and (epoch + 1) % config.infer_sample_rate == 0:
+            return True
+    return False
+
 def main():
     """
 
@@ -459,6 +473,9 @@ def main():
     args = parse_arguments()
     ## Load Configuration
     config = Config(filepath=args.config)
+    ## Check Sampler
+    if not valid_sampler(config):
+        raise ValueError("Configuration results in no inferences. Change burn-in or sample frequency.")
     ## Create Output Directories
     basedir = f"{config.output_dir}/" if args.fold is None else f"{config.output_dir}/fold-{args.fold}/".replace("//","/")
     dirs = ["topic_model/document_topic/","topic_model/topic_word/","classification/"]
@@ -537,8 +554,13 @@ def main():
     train_corpus, train_missing = generate_corpus(Xs_train, label="source", mask=source_mask, num_jobs=args.num_jobs)
     train_corpus, train_missing = generate_corpus(Xt_train, label="target", mask=target_mask, corpus=train_corpus, missing=train_missing, num_jobs=args.num_jobs)
     LOGGER.info("Generating Training Corpus (Inference)")
-    train_corpus_infer, train_missing_infer = generate_corpus(Xs_train, label="source", missing={}, num_jobs=args.num_jobs)
-    train_corpus_infer, train_missing_infer = generate_corpus(Xt_train, label="target", corpus=train_corpus_infer, missing=train_missing_infer, num_jobs=args.num_jobs)
+    if config.topic_model_data.get("source") is None and config.topic_model_data.get("target") is None:
+        LOGGER.info("Using Training Corpus for Inference")
+        train_corpus_infer = train_corpus
+        train_missing_infer = train_missing
+    else:
+        train_corpus_infer, train_missing_infer = generate_corpus(Xs_train, label="source", missing={}, num_jobs=args.num_jobs)
+        train_corpus_infer, train_missing_infer = generate_corpus(Xt_train, label="target", corpus=train_corpus_infer, missing=train_missing_infer, num_jobs=args.num_jobs)
     LOGGER.info("Generating Development Corpus (Inference)")
     development_corpus, dev_missing = generate_corpus(Xs_dev, label="source", missing={}, num_jobs=args.num_jobs)
     development_corpus, dev_missing = generate_corpus(Xt_dev, label="target", corpus=development_corpus, missing=dev_missing, num_jobs=args.num_jobs)
@@ -578,35 +600,45 @@ def main():
     K = model.k
     ## Gibbs Cache
     ll = np.zeros(config.n_iter)
-    phi = np.zeros((config.n_iter, K, V))
-    theta = np.zeros((config.n_iter, N, K))
-    theta_train = np.zeros((config.n_iter, N_train, K))
-    theta_dev = np.zeros((config.n_iter, N_dev, K))
-    theta_test = np.zeros((config.n_iter, N_test, K)) if args.evaluate_test else None
+    theta_train = []
+    theta_dev = []
+    theta_test = [] if args.evaluate_test else None
+    if args.cache_parameters:
+        phi = np.zeros((config.n_iter, K, V))
+        theta = np.zeros((config.n_iter, N, K))
+    else:
+        phi = np.zeros((K,V))
+        theta = np.zeros((N, K))
     ## Train Model
-    dev_infer_mask = []
     for epoch in tqdm(range(0, config.n_iter), desc="MCMC Iteration", file=sys.stdout):
         ## Run Sample Epoch
         model.train(1, workers=args.num_jobs)
         ## Examine Data Fit
         ll[epoch] = model.ll_per_word
-        ## Cache Parameters
-        phi[epoch] = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
-        theta[epoch] = np.vstack([d.get_topic_dist() for d in model.docs])
+        ## Cache Model Parameters
+        if args.cache_parameters:
+            phi[epoch] = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
+            theta[epoch] = np.vstack([d.get_topic_dist() for d in model.docs])
+        elif epoch == (config.n_iter - 1):
+            phi = np.vstack([model.get_topic_word_dist(i) for i in range(K)])
+            theta = np.vstack([d.get_topic_dist() for d in model.docs])
         ## Make Inferences Regularly
         if (epoch + 1) >= config.n_burn and (epoch + 1) % config.infer_sample_rate == 0:
-            ## Update Mask
-            dev_infer_mask.append(epoch)
             ## Training Inference
             train_dist, _ = model.infer(train_corpus_infer, iter=config.n_sample, together=False)
-            theta_train[epoch] = np.vstack([t.get_topic_dist() for t in train_dist])
+            theta_train.append(np.vstack([t.get_topic_dist() for t in train_dist]))
             ## Development Inference
             dev_dist, _ = model.infer(development_corpus, iter=config.n_sample, together=False)
-            theta_dev[epoch] = np.vstack([d.get_topic_dist() for d in dev_dist])
+            theta_dev.append(np.vstack([d.get_topic_dist() for d in dev_dist]))
             ## Test Inference
             if args.evaluate_test:
                 test_dist, _ = model.infer(test_corpus, iter=config.n_sample, together=False)
-                theta_test[epoch] = np.vstack([t.get_topic_dist() for t in test_dist])
+                theta_test.append(np.vstack([t.get_topic_dist() for t in test_dist]))
+    ## Stack Inferences
+    theta_train = np.stack(theta_train)
+    theta_dev = np.stack(theta_dev)
+    if args.evaluate_test:
+        theta_test = np.stack(theta_test)
     ## Cache Model Summary
     _ = model.summary(topic_word_top_n=20, file=open(f"{basedir}/topic_model/model_summary.txt","w"))
     ################
@@ -631,14 +663,14 @@ def main():
             LOGGER.info("{}: {}".format(k, ", ".join(top_terms)))
     ## Show Average Topic Distribution (Training Data)
     LOGGER.info("Plotting Average Topic Distributions")
-    fig, ax = plot_average_topic_distribution(theta=theta_train[dev_infer_mask],
+    fig, ax = plot_average_topic_distribution(theta=theta_train,
                                               model=model,
                                               use_plda=config.use_plda,
                                               n_burn=0)
     fig.savefig(f"{basedir}/topic_model/average_topic_distribution_train{args.plot_fmt}",dpi=300)
     plt.close(fig)
     ## Show Average Topic Distribution (Development Data)
-    fig, ax = plot_average_topic_distribution(theta=theta_dev[dev_infer_mask],
+    fig, ax = plot_average_topic_distribution(theta=theta_dev,
                                               model=model,
                                               use_plda=config.use_plda,
                                               n_burn=0)
@@ -649,7 +681,7 @@ def main():
         LOGGER.info("Plotting Sample of Document Topic Distributions")
         for doc_n in np.random.choice(theta_train.shape[1], 10):
             fig, ax = plot_document_topic_distribution(doc=doc_n,
-                                                       theta=theta_train[dev_infer_mask])
+                                                       theta=theta)
             fig.savefig(f"{basedir}/topic_model/document_topic/train_{doc_n}{args.plot_fmt}",dpi=300)
             plt.close(fig)
     ## Show Trace for a Topic Word Distribution
@@ -712,10 +744,10 @@ def main():
                 LOGGER.info("Feature Set: Average Representation ({}), Norm ({}), Regularization ({})".format(average_representation, norm, C))
                 if average_representation:
                     ## Average
-                    X_train = theta_train_latent[dev_infer_mask].mean(axis=0)
-                    X_dev = theta_dev_latent[dev_infer_mask].mean(axis=0)
+                    X_train = theta_train_latent.mean(axis=0)
+                    X_dev = theta_dev_latent.mean(axis=0)
                     if args.evaluate_test:
-                        X_test = theta_test_latent[dev_infer_mask].mean(axis=0)
+                        X_test = theta_test_latent.mean(axis=0)
                     ## Normalization (If Desired)
                     if norm:
                         X_train = normalize(X_train, norm=norm, axis=1)
@@ -729,10 +761,10 @@ def main():
                         X_test =  X_test.reshape((1,X_test.shape[0], X_test.shape[1]))
                 else:
                     ## Remove Burn In
-                    X_train = theta_train_latent[dev_infer_mask].copy()
-                    X_dev = theta_dev_latent[dev_infer_mask].copy()
+                    X_train = theta_train_latent.copy()
+                    X_dev = theta_dev_latent.copy()
                     if args.evaluate_test:
-                        X_test = theta_test_latent[dev_infer_mask].copy()
+                        X_test = theta_test_latent.copy()
                     ## Normalization (If Desired)
                     if norm:
                         X_train = np.stack([normalize(x, norm=norm, axis=1) for x in X_train])

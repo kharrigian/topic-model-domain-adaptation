@@ -1,24 +1,23 @@
 
+"""
+Summarize Performance
+"""
+
 ########################
 ### Configuration
 ########################
 
 ## Choose Directories to Analyze
 COMPARE_DIRS = {
-    "LDA":"./data/results/depression/k_latent/clpsych_wolohan/LDA/",
-    "PLDA":"./data/results/depression/k_latent/clpsych_wolohan/PLDA/",
+    "clpsych_multitask":"./data/results/depression/hyperparameter-sweep/PLDA/*source-clpsych_deduped_target-multitask*/",
+    "multitask_clpsych":"./data/results/depression/hyperparameter-sweep/PLDA/*source-multitask_target-clpsych_deduped*/",
 }
 
 ## Plot Directory
-PLOT_DIR = "./plots/classification/clpsych_wolohan/"
+PLOT_DIR = "./plots/classification/test/"
 
-## Analysis Type
-ANALYSIS_TYPE = "k_latent" # "prior", "k_latent"
-
-## Metrics
-METRIC_OPT = "f1"
-METRIC_VARS = ["f1","precision","avg_precision","auc"]
-WEIGHTED_METRIC_VALS = ["f1","avg_precision","auc"]
+## Cross Validation Flag
+CROSS_VALIDATION = True
 
 ########################
 ### Imports
@@ -33,7 +32,17 @@ from glob import glob
 ## External Libraries
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
+
+########################
+### Globals
+########################
+
+## Plot Directory
+if not os.path.exists(PLOT_DIR):
+    _ = os.makedirs(PLOT_DIR)
 
 ########################
 ### Helpers
@@ -51,145 +60,158 @@ def average(x, precision=5, include_std=False):
         res = "{}".format(round(mean, precision))
     return res
 
+def load_scores(directory,
+                experiment_id,
+                config):
+    """
+
+    """
+    ## Check File
+    if not os.path.exists(f"{directory}/classification/scores.csv"):
+        return None
+    ## Load Data
+    scores = pd.read_csv(f"{directory}/classification/scores.csv").fillna("None")
+    ## Add Metadata
+    scores["experiment"] = experiment_id
+    for v in config.keys():
+        if v.endswith("sample_size"):
+            for group in ["train","dev","test"]:
+                scores[f"{group}_{v}"] = config[v].get(group,None)
+        elif v.endswith("class_ratio"):
+            scores[f"{v}_train"] = str(config[v]["train"])
+            scores[f"{v}_dev"] = str(config[v]["dev"])
+        elif v == "topic_model_data":
+            for ds in ["source","target"]:
+                scores[f"{v}_{ds}"] = config[v][ds]
+        elif v in ["C","averaging","norm","random_seed","max_iter"]:
+            continue
+        else:
+            scores[v] = config[v]
+    return scores
+
+def plot_marginal_influence(scores_df,
+                            vc,
+                            vary_cols,
+                            metric,
+                            aggfunc=np.mean):
+    """
+
+    """
+    ## Get Relevant Data Aggregations
+    group_cols = [v for v in vary_cols if v != vc]
+    grouped_scores = scores_df.groupby(["domain","group"] + group_cols + [vc])[metric].agg([aggfunc, np.std])
+    grouped_scores_avg = scores_df.groupby(["domain","group",vc])[metric].agg([aggfunc,np.std])
+    ## Generate Plot
+    fig, ax = plt.subplots(2, 2, sharex=True, sharey=True)
+    for d, domain in enumerate(["source","target"]):
+        for g, group in enumerate(["train","development"]):
+            pax = ax[d, g]
+            pax_data = grouped_scores.loc[domain, group].reset_index().sort_values(vc)
+            for opt, ind in  pax_data.groupby(group_cols).groups.items():
+                opt_data = pax_data.loc[ind]
+                offset = np.random.normal(0,0.01)
+                pax.errorbar(np.arange(opt_data.shape[0])+offset,
+                             opt_data[aggfunc.__name__].values,
+                             yerr=opt_data["std"].values,
+                             color="C0",
+                             alpha=0.01,
+                             zorder=-1)
+            pax.errorbar(np.arange(opt_data.shape[0]),
+                         grouped_scores_avg.loc[domain, group][aggfunc.__name__].values,
+                         yerr=grouped_scores_avg.loc[domain, group]["std"].values,
+                         color="black",
+                         linewidth=3,
+                         zorder=1,
+                         capsize=3)
+            pax.set_title(f"{domain.title()} - {group.title()}")
+            pax.spines["right"].set_visible(False)
+            pax.spines["top"].set_visible(False)
+            if pax.get_ylim()[0] < 0:
+                pax.set_ylim(bottom=0)
+            if g == 0:
+                pax.set_ylabel(metric)
+            if d == 1:
+                pax.set_xlabel(f"{vc} Type")
+            pax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    fig.tight_layout()
+    return fig, ax
+
 ########################
 ### Load Results
 ########################
 
-## Load Scores
+## Initialize Cache
 scores_df = []
-for exp_id, exp_dir in COMPARE_DIRS.items():
-    exp_id_dirs = glob(f"{exp_dir}*/")
-    for ed in exp_id_dirs:
+
+## Load Scores Iteratively
+for exp_id, exp_dir in tqdm(COMPARE_DIRS.items(), total=len(COMPARE_DIRS), desc="Compare Categories", position=0):
+    ## Identify Directories
+    exp_id_dirs = glob(f"{exp_dir}")
+    ## Iterate Through Directories
+    for ed in tqdm(exp_id_dirs, desc="Comparison Directories", position=1, leave=False):
         ## Load Config
         with open(f"{ed}config.json","r") as the_file:
             ed_config = json.load(the_file)
-        ## Load Score Data
-        if not os.path.exists(f"{ed}classification/scores.csv"):
-            print(ed)
-            continue
-        sf_data = pd.read_csv(f"{ed}classification/scores.csv").fillna("None")
-        ## Optimize Model Parameters (Based on Source Data)
-        sf_opt_C = sf_data.loc[(sf_data["domain"]=="source")&(sf_data["group"]=="development")].set_index("C")[METRIC_OPT].idxmax()
-        sf_data = sf_data.loc[sf_data["C"]==sf_opt_C].reset_index(drop=True).copy()
-        ## Merge Metadata
-        sf_data["experiment"] = exp_id
-        for v in ed_config.keys():
-            if v.endswith("sample_size"):
-                for group in ["train","dev","test"]:
-                    sf_data[f"{group}_{v}"] = ed_config[v].get(group,None)
-            elif v.endswith("class_ratio"):
-                sf_data[f"{v}_train"] = str(ed_config[v]["train"])
-                sf_data[f"{v}_dev"] = str(ed_config[v]["dev"])
-            elif v in ["C","averaging","norm","random_seed","max_iter"]:
+        ## Cross Validation Scores
+        if CROSS_VALIDATION:
+            ## Load All Scores
+            ed_fold_dirs = glob(f"{ed}fold-*/")
+            for ed_fold_dir in ed_fold_dirs:
+                sf_data = load_scores(ed_fold_dir, exp_id, ed_config)
+                if sf_data is None:
+                    print(f"No data for {ed_fold_dir}")
+                    continue
+                ## Cache Scores
+                scores_df.append(sf_data)
+        else:
+            ## Load Score Data
+            sf_data = load_scores(ed, exp_id, ed_config)
+            if sf_data is None:
+                print(f"No data for {ed_fold_dir}")
                 continue
-            else:
-                sf_data[v] = ed_config[v]
-        ## Cache Scores
-        scores_df.append(sf_data)
+            ## Add General Fold
+            sf_data["fold"] = 1
+            ## Cache Scores
+            scores_df.append(sf_data)
+
+## Concatenate Scores
 scores_df = pd.concat(scores_df).reset_index(drop=True)
 
 ########################
-### Plot Results
+### Hyperparameter Analysis
 ########################
 
-## Establish Analysis-specific Plot Directory
-ad = f"{PLOT_DIR}/{ANALYSIS_TYPE}/".replace("//","/")
-if not os.path.exists(ad):
-    _ = os.makedirs(ad)
+## Get Unique Experiments
+experiments = scores_df["experiment"].unique()
 
-######## Prior
+## Iterate over Experiments
+for e, experiment in enumerate(experiments):
+    ## Logging
+    print("\n" + "~"*50 + "\nStarting Hyperparameter Analysis for Experiment {}/{}: {}\n".format(e+1, len(experiments), experiment) + "~"*50)
+    ## Isolate Experiment Data
+    experiment_scores_df = scores_df.loc[scores_df["experiment"]==experiment].copy()
+    ## Identify Parameters that Vary
+    all_metrics = ["auc","avg_precision","f1","precision","recall"]
+    gen_cols = ["domain","group","source","target","experiment","output_dir","fold","model_n"]
+    vary_cols = [v for v in experiment_scores_df.drop(all_metrics + gen_cols, axis=1).columns.tolist() if len(experiment_scores_df[v].unique()) > 1]
+    ## Display Unique Values
+    print("\nParameter Groups:\n" + "~"*50)
+    for ctype, cvals in  experiment_scores_df[vary_cols].apply(set, axis=0).map(sorted).items():
+        print(ctype,":",cvals)
+    ## Visualize Marginal Influence of Each Parameter
+    print("\nPlotting Marginal Parameter Influence\n" + "~"*50)
+    for vc in tqdm(vary_cols, desc="Parameter Group", position=0):
+        for metric in tqdm(all_metrics, desc="Metric", position=1, leave=False):
+            if metric not in experiment_scores_df.columns:
+                continue
+            fig, ax = plot_marginal_influence(experiment_scores_df,
+                                              vc,
+                                              vary_cols,
+                                              metric,
+                                              aggfunc=np.mean)
+            fig.savefig(f"{PLOT_DIR}{experiment}_{vc}_{metric}.png", dpi=150)
+            plt.close(fig)
 
-if ANALYSIS_TYPE == "prior":
-    ## Cycle Through Combos
-    for group in ["train","development"]:
-        for domain in ["source","target"]:
-            for metric in METRIC_VARS + [WEIGHTED_METRIC_VALS]:
-                ## Get Scores
-                prior = pd.pivot_table(scores_df.loc[(scores_df["domain"]==domain)&(scores_df["group"]==group)],
-                               index=["alpha","beta"],
-                               columns=["experiment"],
-                               values=metric,
-                               aggfunc=np.mean)
-                ## Separate Results
-                if isinstance(metric, str):
-                    lda_unstack = prior.unstack()["LDA"].iloc[::-1]
-                    plda_unstack = prior.unstack()["PLDA"].iloc[::-1]
-                else:
-                    lda_unstack = prior[[(m,"LDA") for m in metric]].mean(axis=1).dropna().unstack().iloc[::-1]
-                    plda_unstack = prior[[(m,"PLDA") for m in metric]].mean(axis=1).dropna().unstack().iloc[::-1]
-                    metric = "combined_average"
-                ## Generate Plot
-                fig, ax = plt.subplots(1,2,figsize=(15,5),sharey=True)
-                for i, (u, cmap) in enumerate(zip([lda_unstack, plda_unstack],[plt.cm.Blues,plt.cm.Reds])):
-                    m = ax[i].imshow(u, cmap=cmap, aspect="auto", alpha=0.5, vmin=prior.min().min(), vmax=prior.max().max())
-                    ax[i].set_xticks( range(u.shape[1]))
-                    ax[i].set_xticklabels(u.columns)
-                    ax[i].set_yticks(range(u.shape[0]))
-                    ax[i].set_yticklabels(u.index)
-                    for k, row in enumerate(u.values):
-                        for j, col in enumerate(row):
-                            if pd.isnull(col):
-                                ax[i].text(j, k, "-", fontsize=12, ha="center", va="center")
-                                continue
-                            ax[i].text(j, k, "{:.3f}".format(col)[1:] if col != 1 else 1, ha="center", va="center", color="black", fontsize=12, fontweight="bold" if col == np.nanmax(u.values) else "normal")
-                    ax[i].set_xlabel("$\\beta$", fontsize=18, fontweight="bold")
-                    if i == 0:
-                        ax[i].set_ylabel("$\\alpha$", fontsize=18, fontweight="bold", rotation=0, labelpad=20)
-                ax[0].set_title("LDA", loc="left", fontweight="bold", fontstyle="italic", fontsize=20)
-                ax[1].set_title("PLDA", loc="left", fontweight="bold", fontstyle="italic", fontsize=20)
-                for a in ax:
-                    a.tick_params(labelsize=14)
-                fig.tight_layout()
-                fig.savefig(f"{ad}{group}_{domain}_{metric}.pdf")
-                plt.close(fig)
-
-
-######## Latent Topics
-
-if ANALYSIS_TYPE == "k_latent":
-    ## Cycle Through Combos
-    for group in ["train","development"]:
-        for domain in ["source","target"]:
-            for metric in METRIC_VARS + [WEIGHTED_METRIC_VALS]:
-                ## Get Score
-                latent = pd.pivot_table(scores_df.loc[(scores_df["domain"]==domain)&(scores_df["group"]==group)],
-                            index=["k_latent","k_per_label"],
-                            columns=["experiment"],
-                            values=metric,
-                            aggfunc=np.mean)
-                ## Separate Results
-                if isinstance(metric, str):
-                    latent_lda = latent["LDA"].dropna()
-                    latent_plda_unstack = latent["PLDA"].unstack().T.iloc[::-1]
-                else:
-                    latent_lda = latent[[(m,"LDA") for m in metric]].mean(axis=1).dropna()
-                    latent_plda_unstack = latent[[(m,"PLDA") for m in metric]].mean(axis=1).unstack().T.iloc[::-1]
-                    metric = "combined_average"
-                ## Generate Plots
-                fig, ax = plt.subplots(1,2,figsize=(15,5))
-                ax[0].plot(latent_lda.index.levels[0], latent_lda.values, marker="o", linestyle="--", alpha=0.8, linewidth=3, markersize=10)
-                ax[0].axhline(latent_plda_unstack.max().max(), linestyle="--", alpha=0.8, color="darkred", label="PLDA Max Score", linewidth=3)
-                m = ax[1].imshow(latent_plda_unstack, cmap=plt.cm.Reds, aspect="auto", alpha=0.5)
-                cbar = fig.colorbar(m, ax=ax[1])
-                cbar.ax.tick_params(labelsize=14)
-                ax[1].set_xticks( range(latent_plda_unstack.shape[1]))
-                ax[1].set_xticklabels(latent_plda_unstack.columns)
-                ax[1].set_yticks(range(latent_plda_unstack.shape[0]))
-                ax[1].set_yticklabels(latent_plda_unstack.index)
-                for i, row in enumerate(latent_plda_unstack.values):
-                    for j, col in enumerate(row):
-                        ax[1].text(j, i, "{:.3f}".format(col)[1:], ha="center", va="center", color="black", fontsize=12, fontweight="bold" if col == np.nanmax(latent_plda_unstack.values) else "normal")
-                ax[0].set_xlabel("# Latent Topics", fontsize=18, fontweight="bold") 
-                ax[0].set_ylabel(metric.replace("_"," ").title() if len(metric) > 3 else metric.upper(), fontsize=18, fontweight="bold")
-                ax[1].set_xlabel("# Latent Topics", fontsize=18, fontweight="bold")
-                ax[1].set_ylabel("# Topics\nPer Domain", fontsize=18, fontweight="bold")
-                ax[0].spines["top"].set_visible(False)
-                ax[0].spines["right"].set_visible(False)
-                ax[0].legend(loc="lower right", fontsize=14)
-                ax[0].set_title("LDA", loc="left", fontweight="bold", fontstyle="italic", fontsize=20)
-                ax[1].set_title("PLDA", loc="left", fontweight="bold", fontstyle="italic", fontsize=20)
-                for a in ax:
-                    a.tick_params(labelsize=14)
-                fig.tight_layout()
-                fig.savefig(f"{ad}{group}_{domain}_{metric}.pdf")
-                plt.close(fig)
+####################
+### Optimal Models ##TODO
+####################

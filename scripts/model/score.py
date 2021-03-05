@@ -16,6 +16,10 @@ COMPARE_DIRS = {
 ## Plot Directory
 PLOT_DIR = "./plots/classification/test/"
 
+## Choose Metrics (Plotting + Optimization)
+METRICS = ["f1","auc"]
+OPT_METRICS = ["f1","auc"]
+
 ## Cross Validation Flag
 CROSS_VALIDATION = True
 
@@ -36,6 +40,10 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 
+## Local
+from mhlib.util.helpers import flatten
+from mhlib.util.logging import initialize_logger
+
 ########################
 ### Globals
 ########################
@@ -43,6 +51,19 @@ from matplotlib.ticker import MaxNLocator
 ## Plot Directory
 if not os.path.exists(PLOT_DIR):
     _ = os.makedirs(PLOT_DIR)
+
+## Logging
+LOGGER = initialize_logger()
+
+## All Metrics
+GEN_COLS = ["domain","group","source","target","experiment","output_dir","fold","model_n"]
+ALL_METRICS = ["auc","avg_precision","f1","precision","recall"]
+
+## Joint Hyperparameters
+JOINT_PARAMS = {
+    "prior":["alpha","beta"],
+    "latent_factors":["k_latent","k_per_label"]
+}
 
 ########################
 ### Helpers
@@ -87,6 +108,11 @@ def load_scores(directory,
             continue
         else:
             scores[v] = config[v]
+    ## Add Joint Parameters
+    for jp, jpl in JOINT_PARAMS.items():
+        if not all(j in scores.columns for j in jpl):
+            continue
+        scores[jp] = scores[jpl].apply(tuple,axis=1).map(str)
     return scores
 
 def plot_marginal_influence(scores_df,
@@ -98,7 +124,10 @@ def plot_marginal_influence(scores_df,
 
     """
     ## Get Relevant Data Aggregations
-    group_cols = [v for v in vary_cols if v != vc]
+    if vc not in JOINT_PARAMS.keys():
+        group_cols = [v for v in vary_cols if v != vc and v not in JOINT_PARAMS.keys()]
+    else:
+        group_cols = [v for v in vary_cols if v != vc and v not in flatten(JOINT_PARAMS.values())]
     grouped_scores = scores_df.groupby(["domain","group"] + group_cols + [vc])[metric].agg([aggfunc, np.std])
     grouped_scores_avg = scores_df.groupby(["domain","group",vc])[metric].agg([aggfunc,np.std])
     ## Generate Plot
@@ -159,7 +188,7 @@ for exp_id, exp_dir in tqdm(COMPARE_DIRS.items(), total=len(COMPARE_DIRS), desc=
             for ed_fold_dir in ed_fold_dirs:
                 sf_data = load_scores(ed_fold_dir, exp_id, ed_config)
                 if sf_data is None:
-                    print(f"No data for {ed_fold_dir}")
+                    LOGGER.warning(f"No data for {ed_fold_dir}")
                     continue
                 ## Cache Scores
                 scores_df.append(sf_data)
@@ -167,7 +196,7 @@ for exp_id, exp_dir in tqdm(COMPARE_DIRS.items(), total=len(COMPARE_DIRS), desc=
             ## Load Score Data
             sf_data = load_scores(ed, exp_id, ed_config)
             if sf_data is None:
-                print(f"No data for {ed_fold_dir}")
+                LOGGER.warning(f"No data for {ed_fold_dir}")
                 continue
             ## Add General Fold
             sf_data["fold"] = 1
@@ -187,31 +216,34 @@ experiments = scores_df["experiment"].unique()
 ## Iterate over Experiments
 for e, experiment in enumerate(experiments):
     ## Logging
-    print("\n" + "~"*50 + "\nStarting Hyperparameter Analysis for Experiment {}/{}: {}\n".format(e+1, len(experiments), experiment) + "~"*50)
+    LOGGER.info("\n" + "~"*50 + "\nStarting Hyperparameter Analysis for Experiment {}/{}: {}\n".format(e+1, len(experiments), experiment) + "~"*50)
     ## Isolate Experiment Data
     experiment_scores_df = scores_df.loc[scores_df["experiment"]==experiment].copy()
     ## Identify Parameters that Vary
-    all_metrics = ["auc","avg_precision","f1","precision","recall"]
-    gen_cols = ["domain","group","source","target","experiment","output_dir","fold","model_n"]
-    vary_cols = [v for v in experiment_scores_df.drop(all_metrics + gen_cols, axis=1).columns.tolist() if len(experiment_scores_df[v].unique()) > 1]
+    vary_cols = [v for v in experiment_scores_df.drop(ALL_METRICS + GEN_COLS, axis=1).columns.tolist() if len(experiment_scores_df[v].unique()) > 1]
     ## Display Unique Values
-    print("\nParameter Groups:\n" + "~"*50)
-    for ctype, cvals in  experiment_scores_df[vary_cols].apply(set, axis=0).map(sorted).items():
-        print(ctype,":",cvals)
+    LOGGER.info("\nParameter Groups:\n" + "~"*50)
+    with open(f"{PLOT_DIR}{experiment}.params.txt","w") as the_file:
+        for ctype, cvals in  experiment_scores_df[vary_cols].apply(set, axis=0).map(sorted).items():
+            LOGGER.info("{}:{}".format(ctype,cvals))
+            the_file.write(f"{ctype}: {cvals}\n")
     ## Visualize Marginal Influence of Each Parameter
-    print("\nPlotting Marginal Parameter Influence\n" + "~"*50)
+    LOGGER.info("\nPlotting Marginal Parameter Influence\n" + "~"*50)
     for vc in tqdm(vary_cols, desc="Parameter Group", position=0):
-        for metric in tqdm(all_metrics, desc="Metric", position=1, leave=False):
+        for metric in tqdm(METRICS, desc="Metric", position=1, leave=False):
             if metric not in experiment_scores_df.columns:
                 continue
             fig, ax = plot_marginal_influence(experiment_scores_df,
                                               vc,
                                               vary_cols,
                                               metric,
-                                              aggfunc=np.mean)
+                                              aggfunc=np.median)
             fig.savefig(f"{PLOT_DIR}{experiment}_{vc}_{metric}.png", dpi=150)
             plt.close(fig)
-
-####################
-### Optimal Models ##TODO
-####################
+    ## Optimal Model
+    experiment_agg_scores = experiment_scores_df.groupby(["group","domain"] + vary_cols)[OPT_METRICS].agg([np.mean,np.std]).loc["development"]
+    experiment_agg_scores["weighted_rank"] = experiment_agg_scores[[[o, "mean"] for o in OPT_METRICS]].sum(axis=1).rank(ascending=False)
+    LOGGER.info("Displaying Top Models")
+    for domain in ["source","target"]:
+        top_exp_scores = experiment_agg_scores.loc[domain].sort_values("weighted_rank", ascending=True).head(10)
+        LOGGER.info("~"*50 + f"\nDomain: {domain}\n"+"~"*50 + "\n"+top_exp_scores.to_string())

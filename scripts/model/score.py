@@ -18,7 +18,7 @@ PLOT_DIR = "./plots/classification/factor-sweep/lda/"
 
 ## Option 2: Automatically Find Directories for Multiple Dataset Combinations
 DATASETS = ["clpsych_deduped","multitask","wolohan","smhd"]
-BASE_DIR = "./data/results/depression/prior-sweep/LDA/"
+BASE_DIR = "./data/results/depression/factor-sweep/LDA/"
 COMPARE_DIRS = {}
 for source_ds in DATASETS:
     for target_ds in DATASETS:

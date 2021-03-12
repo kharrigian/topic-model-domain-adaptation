@@ -15,3 +15,7 @@ data/results/synthetic
 temp*
 *$*
 *.pptx
+
+## Plots
+plots/classification/prior-sweep/
+plots/classification/factor-sweep/

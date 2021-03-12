@@ -7,18 +7,36 @@ Summarize Performance
 ### Configuration
 ########################
 
-## Choose Directories to Analyze
-COMPARE_DIRS = {
-    "clpsych_multitask":"./data/results/depression/hyperparameter-sweep/PLDA/*source-clpsych_deduped_target-multitask*/",
-    "multitask_clpsych":"./data/results/depression/hyperparameter-sweep/PLDA/*source-multitask_target-clpsych_deduped*/",
-}
+## Specify Plot Directory
+PLOT_DIR = "./plots/classification/factor-sweep/lda/"
 
-## Plot Directory
-PLOT_DIR = "./plots/classification/test/"
+## Option 1: Choose Directories to Analyze
+# COMPARE_DIRS = {
+#     "clpsych_multitask":"./data/results/depression/hyperparameter-sweep/PLDA/*source-clpsych_deduped_target-multitask*/",
+#     "multitask_clpsych":"./data/results/depression/hyperparameter-sweep/PLDA/*source-multitask_target-clpsych_deduped*/",
+# }
+
+## Option 2: Automatically Find Directories for Multiple Dataset Combinations
+DATASETS = ["clpsych_deduped","multitask","wolohan","smhd"]
+BASE_DIR = "./data/results/depression/prior-sweep/LDA/"
+COMPARE_DIRS = {}
+for source_ds in DATASETS:
+    for target_ds in DATASETS:
+        if source_ds == target_ds:
+            continue
+        if set([source_ds,target_ds]) == set(["rsdd","smhd"]):
+            continue
+        COMPARE_DIRS[f"{source_ds}-{target_ds}"] = f"{BASE_DIR}*source-{source_ds}_target-{target_ds}*/"
 
 ## Choose Metrics (Plotting + Optimization)
 METRICS = ["f1","auc"]
-OPT_METRICS = ["f1","auc"]
+OPT_METRICS = ["auc"]
+
+## Choose Hyperparameters to Look at Together
+JOINT_PARAMS = {
+    # "prior":["alpha","beta"],
+    # "latent_factors":["k_latent","k_per_label"]
+}
 
 ## Cross Validation Flag
 CROSS_VALIDATION = True
@@ -58,12 +76,6 @@ LOGGER = initialize_logger()
 ## All Metrics
 GEN_COLS = ["domain","group","source","target","experiment","output_dir","fold","model_n"]
 ALL_METRICS = ["auc","avg_precision","f1","precision","recall"]
-
-## Joint Hyperparameters
-JOINT_PARAMS = {
-    "prior":["alpha","beta"],
-    "latent_factors":["k_latent","k_per_label"]
-}
 
 ########################
 ### Helpers
@@ -115,6 +127,24 @@ def load_scores(directory,
         scores[jp] = scores[jpl].apply(tuple,axis=1).map(str)
     return scores
 
+def bootstrap_ci(x,
+                 n=100,
+                 alpha=0.05,
+                 aggfunc=np.mean):
+    """
+
+    """
+    cache = np.zeros(n)
+    theta_0 = aggfunc(x)
+    for i in range(n):
+        cache[i] = aggfunc(np.random.choice(x, len(x), replace=True))
+    ## Compute Bounds
+    q_l = np.nanpercentile(theta_0 - cache, q=100*alpha/2)
+    q_u = np.nanpercentile(theta_0 - cache, q=100 - 100*alpha/2)
+    ## Return
+    q = np.array([theta_0 + q_l, theta_0, theta_0 + q_u])
+    return tuple(q)
+
 def plot_marginal_influence(scores_df,
                             vc,
                             vary_cols,
@@ -129,7 +159,9 @@ def plot_marginal_influence(scores_df,
     else:
         group_cols = [v for v in vary_cols if v != vc and v not in flatten(JOINT_PARAMS.values())]
     grouped_scores = scores_df.groupby(["domain","group"] + group_cols + [vc])[metric].agg([aggfunc, np.std])
-    grouped_scores_avg = scores_df.groupby(["domain","group",vc])[metric].agg([aggfunc,np.std])
+    grouped_scores_avg = scores_df.groupby(["domain","group",vc])[metric].agg(bootstrap_ci).to_frame()
+    for i in range(3):
+        grouped_scores_avg[i] = grouped_scores_avg[metric].map(lambda j: j[i])
     ## Generate Plot
     fig, ax = plt.subplots(2, 2, sharex=True, sharey=True)
     for d, domain in enumerate(["source","target"]):
@@ -143,15 +175,16 @@ def plot_marginal_influence(scores_df,
                              opt_data[aggfunc.__name__].values,
                              yerr=opt_data["std"].values,
                              color="C0",
-                             alpha=0.01,
+                             alpha=0.05,
                              zorder=-1)
             pax.errorbar(np.arange(opt_data.shape[0]),
-                         grouped_scores_avg.loc[domain, group][aggfunc.__name__].values,
-                         yerr=grouped_scores_avg.loc[domain, group]["std"].values,
+                         grouped_scores_avg.loc[domain, group][1].values,
+                         yerr=np.vstack([(grouped_scores_avg.loc[domain, group][1]-grouped_scores_avg.loc[domain, group][0]).values,
+                                         (grouped_scores_avg.loc[domain, group][2]-grouped_scores_avg.loc[domain, group][1]).values]),
                          color="black",
-                         linewidth=3,
+                         linewidth=2,
                          zorder=1,
-                         capsize=3)
+                         capsize=2)
             pax.set_title(f"{domain.title()} - {group.title()}")
             pax.spines["right"].set_visible(False)
             pax.spines["top"].set_visible(False)
@@ -237,7 +270,7 @@ for e, experiment in enumerate(experiments):
                                               vc,
                                               vary_cols,
                                               metric,
-                                              aggfunc=np.median)
+                                              aggfunc=np.mean)
             fig.savefig(f"{PLOT_DIR}{experiment}_{vc}_{metric}.png", dpi=150)
             plt.close(fig)
     ## Optimal Model

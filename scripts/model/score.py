@@ -8,7 +8,7 @@ Summarize Performance
 ########################
 
 ## Specify Plot Directory
-PLOT_DIR = "./plots/classification/factor-sweep/lda/"
+PLOT_DIR = "./plots/classification/prior-sweep/plda/folds/"
 
 ## Option 1: Choose Directories to Analyze
 # COMPARE_DIRS = {
@@ -18,7 +18,7 @@ PLOT_DIR = "./plots/classification/factor-sweep/lda/"
 
 ## Option 2: Automatically Find Directories for Multiple Dataset Combinations
 DATASETS = ["clpsych_deduped","multitask","wolohan","smhd"]
-BASE_DIR = "./data/results/depression/factor-sweep/LDA/"
+BASE_DIR = "./data/results/depression/prior-sweep/PLDA/"
 COMPARE_DIRS = {}
 for source_ds in DATASETS:
     for target_ds in DATASETS:
@@ -34,12 +34,13 @@ OPT_METRICS = ["auc"]
 
 ## Choose Hyperparameters to Look at Together
 JOINT_PARAMS = {
-    # "prior":["alpha","beta"],
+    "prior":["alpha","beta"],
     # "latent_factors":["k_latent","k_per_label"]
 }
 
 ## Cross Validation Flag
 CROSS_VALIDATION = True
+PLOT_BY_FOLD = True
 
 ########################
 ### Imports
@@ -173,7 +174,7 @@ def plot_marginal_influence(scores_df,
                 offset = np.random.normal(0,0.01)
                 pax.errorbar(np.arange(opt_data.shape[0])+offset,
                              opt_data[aggfunc.__name__].values,
-                             yerr=opt_data["std"].values,
+                             yerr=opt_data["std"].values if not np.isnan(opt_data["std"].values).all() else None,
                              color="C0",
                              alpha=0.05,
                              zorder=-1)
@@ -266,13 +267,23 @@ for e, experiment in enumerate(experiments):
         for metric in tqdm(METRICS, desc="Metric", position=1, leave=False):
             if metric not in experiment_scores_df.columns:
                 continue
-            fig, ax = plot_marginal_influence(experiment_scores_df,
-                                              vc,
-                                              vary_cols,
-                                              metric,
-                                              aggfunc=np.mean)
-            fig.savefig(f"{PLOT_DIR}{experiment}_{vc}_{metric}.png", dpi=150)
-            plt.close(fig)
+            if PLOT_BY_FOLD:
+                for fold in experiment_scores_df["fold"].unique():
+                    fig, ax = plot_marginal_influence(experiment_scores_df.loc[experiment_scores_df["fold"]==fold],
+                                                      vc,
+                                                      vary_cols,
+                                                      metric,
+                                                      aggfunc=np.mean)
+                    fig.savefig(f"{PLOT_DIR}{experiment}_{vc}_{metric}_{fold}.png", dpi=150)
+                    plt.close(fig)
+            else:
+                fig, ax = plot_marginal_influence(experiment_scores_df,
+                                                  vc,
+                                                  vary_cols,
+                                                  metric,
+                                                  aggfunc=np.mean)
+                fig.savefig(f"{PLOT_DIR}{experiment}_{vc}_{metric}.png", dpi=150)
+                plt.close(fig)
     ## Optimal Model
     experiment_agg_scores = experiment_scores_df.groupby(["group","domain"] + vary_cols)[OPT_METRICS].agg([np.mean,np.std]).loc["development"]
     experiment_agg_scores["weighted_rank"] = experiment_agg_scores[[[o, "mean"] for o in OPT_METRICS]].sum(axis=1).rank(ascending=False)

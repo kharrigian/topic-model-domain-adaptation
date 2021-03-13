@@ -8,7 +8,7 @@ Summarize Performance
 ########################
 
 ## Specify Plot Directory
-PLOT_DIR = "./plots/classification/prior-sweep/plda/"
+PLOT_DIR = "./plots/classification/factor-sweep/plda/"
 
 ## Option 1: Choose Directories to Analyze
 # COMPARE_DIRS = {
@@ -18,7 +18,7 @@ PLOT_DIR = "./plots/classification/prior-sweep/plda/"
 
 ## Option 2: Automatically Find Directories for Multiple Dataset Combinations
 DATASETS = ["clpsych_deduped","multitask","wolohan","smhd"]
-BASE_DIR = "./data/results/depression/prior-sweep/PLDA/"
+BASE_DIR = "./data/results/depression/factor-sweep/PLDA/"
 COMPARE_DIRS = {}
 for source_ds in DATASETS:
     for target_ds in DATASETS:
@@ -34,13 +34,14 @@ OPT_METRICS = ["auc"]
 
 ## Choose Hyperparameters to Look at Together
 JOINT_PARAMS = {
-    "prior":["alpha","beta"],
+    # "prior":["alpha","beta"],
     # "latent_factors":["k_latent","k_per_label"]
 }
 
 ## Cross Validation Flag
-CROSS_VALIDATION = True
+CROSS_VALIDATION = False
 PLOT_BY_FOLD = False
+MAKE_PLOTS = False
 
 ## Filters
 FILTERS = {
@@ -270,33 +271,34 @@ for e, experiment in enumerate(experiments):
     vary_cols = [v for v in experiment_scores_df.drop(ALL_METRICS + GEN_COLS, axis=1).columns.tolist() if len(experiment_scores_df[v].unique()) > 1]
     ## Display Unique Values
     LOGGER.info("\nParameter Groups:\n" + "~"*50)
-    with open(f"{PLOT_DIR}{experiment}.params.txt","w") as the_file:
-        for ctype, cvals in  experiment_scores_df[vary_cols].apply(set, axis=0).map(sorted).items():
-            LOGGER.info("{}:{}".format(ctype,cvals))
-            the_file.write(f"{ctype}: {cvals}\n")
-    ## Visualize Marginal Influence of Each Parameter
-    LOGGER.info("\nPlotting Marginal Parameter Influence\n" + "~"*50)
-    for vc in tqdm(vary_cols, desc="Parameter Group", position=0):
-        for metric in tqdm(METRICS, desc="Metric", position=1, leave=False):
-            if metric not in experiment_scores_df.columns:
-                continue
-            if PLOT_BY_FOLD:
-                for fold in experiment_scores_df["fold"].unique():
-                    fig, ax = plot_marginal_influence(experiment_scores_df.loc[experiment_scores_df["fold"]==fold],
-                                                      vc,
-                                                      vary_cols,
-                                                      metric,
-                                                      aggfunc=np.mean)
-                    fig.savefig(f"{PLOT_DIR}{experiment}_{vc}_{metric}_{fold}.png", dpi=150)
+    if MAKE_PLOTS:
+        with open(f"{PLOT_DIR}{experiment}.params.txt","w") as the_file:
+            for ctype, cvals in  experiment_scores_df[vary_cols].apply(set, axis=0).map(sorted).items():
+                LOGGER.info("{}:{}".format(ctype,cvals))
+                the_file.write(f"{ctype}: {cvals}\n")
+        ## Visualize Marginal Influence of Each Parameter
+        LOGGER.info("\nPlotting Marginal Parameter Influence\n" + "~"*50)
+        for vc in tqdm(vary_cols, desc="Parameter Group", position=0):
+            for metric in tqdm(METRICS, desc="Metric", position=1, leave=False):
+                if metric not in experiment_scores_df.columns:
+                    continue
+                if PLOT_BY_FOLD:
+                    for fold in experiment_scores_df["fold"].unique():
+                        fig, ax = plot_marginal_influence(experiment_scores_df.loc[experiment_scores_df["fold"]==fold],
+                                                        vc,
+                                                        vary_cols,
+                                                        metric,
+                                                        aggfunc=np.mean)
+                        fig.savefig(f"{PLOT_DIR}{experiment}_{vc}_{metric}_{fold}.png", dpi=150)
+                        plt.close(fig)
+                else:
+                    fig, ax = plot_marginal_influence(experiment_scores_df,
+                                                    vc,
+                                                    vary_cols,
+                                                    metric,
+                                                    aggfunc=np.mean)
+                    fig.savefig(f"{PLOT_DIR}{experiment}_{vc}_{metric}.png", dpi=150)
                     plt.close(fig)
-            else:
-                fig, ax = plot_marginal_influence(experiment_scores_df,
-                                                  vc,
-                                                  vary_cols,
-                                                  metric,
-                                                  aggfunc=np.mean)
-                fig.savefig(f"{PLOT_DIR}{experiment}_{vc}_{metric}.png", dpi=150)
-                plt.close(fig)
     ## Optimal Model
     experiment_agg_scores = experiment_scores_df.groupby(["group","domain"] + vary_cols)[OPT_METRICS].agg([np.mean,np.std]).loc["development"]
     experiment_agg_scores["weighted_rank"] = experiment_agg_scores[[[o, "mean"] for o in OPT_METRICS]].sum(axis=1).rank(ascending=False)

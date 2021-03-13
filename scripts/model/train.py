@@ -80,6 +80,9 @@ def parse_arguments():
     parser.add_argument("--cache_parameters",
                         action="store_true",
                         default=False)
+    parser.add_argument("--learn_threshold",
+                        action="store_true",
+                        default=False)
     ## Parse Arguments
     args = parser.parse_args()
     ## Check Config
@@ -792,6 +795,23 @@ def main():
                     y_pred_dev[m] = mdl.predict_proba(X_dev[m])[:,1]
                     if args.evaluate_test:
                         y_pred_test[m] = mdl.predict_proba(X_test[m])[:,1]
+                ## Learn Optimal Thresholds (Youden's J-Score)
+                thresholds = {}
+                for m, mdl_pred in tqdm(enumerate(y_pred_dev), total=y_pred_dev.shape[0], desc="Learning Binarization Thresholds", file=sys.stdout):
+                    for l, latent_pred in enumerate(mdl_pred):
+                        for d, dind in enumerate([source_dev_ind, target_dev_ind]):
+                            if args.learn_threshold:
+                                d_l_pred = latent_pred[dind]
+                                d_l_true = y_dev[dind]
+                                if len(d_l_pred) == 0:
+                                    continue
+                                fpr, tpr, t = metrics.roc_curve(d_l_true, d_l_pred, drop_intermediate=False)
+                                j_scores = tpr - fpr
+                                j_ordered = sorted(zip(j_scores, t))
+                                j_opt_thresh = j_ordered[-1][1]
+                                thresholds[(m,l,d)] = j_opt_thresh
+                            else:
+                                thresholds[(m,l,d)] = 0.5
                 ## ROC Curves
                 LOGGER.info("Plotting ROC/AUC and Scoring Training/Development Predictions")
                 auc_scores = [[[],[]],[[],[]]]
@@ -803,9 +823,9 @@ def main():
                             d_l_true = y_train[dind]
                             if len(d_l_pred) == 0:
                                 continue
-                            tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
+                            tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=thresholds[(m,l,d)])
                             auc_scores[d][0].append(dl_scores.get("auc",0))
-                            dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"train"})
+                            dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"train","threshold":thresholds[(m,l,d)]})
                             dl_scores.update({"norm":norm, "is_average_representation":average_representation, "C":C})
                             all_scores.append(dl_scores)
                             ax[d][0].plot(tpr, fpr, alpha=0.01 if not average_representation else .8, color=f"navy", linewidth=0.5 if not average_representation else 1)
@@ -816,8 +836,8 @@ def main():
                             d_l_true = y_dev[dind]
                             if len(d_l_pred) == 0:
                                 continue
-                            tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
-                            dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"development"})
+                            tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=thresholds[(m,l,d)])
+                            dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"development","threshold":thresholds[(m,l,d)]})
                             dl_scores.update({"norm":norm, "is_average_representation":average_representation,"C":C})
                             all_scores.append(dl_scores)
                             auc_scores[d][1].append(dl_scores.get("auc",0))
@@ -830,8 +850,8 @@ def main():
                                 d_l_true = y_test[dind]
                                 if len(d_l_pred) == 0:
                                     continue
-                                tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=0.5)
-                                dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"test"})
+                                tpr, fpr, dl_scores = get_scores(d_l_true, d_l_pred, threshold=thresholds[(m,l,d)])
+                                dl_scores.update({"model_n":m,"domain":"source" if d == 0 else "target","group":"test","threshold":thresholds[(m,l,d)]})
                                 dl_scores.update({"norm":norm, "is_average_representation":average_representation,"C":C})
                                 all_scores.append(dl_scores)
                 for i, domain in enumerate(["Source","Target"]):
@@ -848,7 +868,7 @@ def main():
                         ax[i,j].set_xlim(0,1)
                         ax[i,j].set_ylim(0,1)
                 fig.tight_layout()
-                fig.savefig(f"{basedir}/classification/roc_auc_{average_representation}_{norm}{args.plot_fmt}",dpi=300)
+                fig.savefig(f"{basedir}/classification/roc_auc_{average_representation}_{norm}_{C}{args.plot_fmt}",dpi=300)
                 plt.close(fig)
     ## Format Scores
     LOGGER.info("Caching Scores")

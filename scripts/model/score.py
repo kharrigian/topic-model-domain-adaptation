@@ -8,7 +8,7 @@ Summarize Performance
 ########################
 
 ## Specify Plot Directory
-PLOT_DIR = "./plots/classification/prior-sweep/plda/folds/"
+PLOT_DIR = "./plots/classification/prior-sweep/plda/"
 
 ## Option 1: Choose Directories to Analyze
 # COMPARE_DIRS = {
@@ -40,7 +40,12 @@ JOINT_PARAMS = {
 
 ## Cross Validation Flag
 CROSS_VALIDATION = True
-PLOT_BY_FOLD = True
+PLOT_BY_FOLD = False
+
+## Filters
+FILTERS = {
+    "norm":["l2"],
+}
 
 ########################
 ### Imports
@@ -125,7 +130,15 @@ def load_scores(directory,
     for jp, jpl in JOINT_PARAMS.items():
         if not all(j in scores.columns for j in jpl):
             continue
-        scores[jp] = scores[jpl].apply(tuple,axis=1).map(str)
+        scores[jp] = scores[jpl].apply(tuple,axis=1)
+    ## Filtering
+    for fkey, fvals in FILTERS.items():
+        fval_set = set(fvals)
+        scores = scores.loc[scores[fkey].isin(fval_set)]
+    if len(scores) == 0:
+        return None
+    else:
+        scores = scores.reset_index(drop=True).copy()
     return scores
 
 def bootstrap_ci(x,
@@ -230,7 +243,7 @@ for exp_id, exp_dir in tqdm(COMPARE_DIRS.items(), total=len(COMPARE_DIRS), desc=
             ## Load Score Data
             sf_data = load_scores(ed, exp_id, ed_config)
             if sf_data is None:
-                LOGGER.warning(f"No data for {ed_fold_dir}")
+                LOGGER.warning(f"No data for {ed}")
                 continue
             ## Add General Fold
             sf_data["fold"] = 1

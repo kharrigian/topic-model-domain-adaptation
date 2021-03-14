@@ -83,6 +83,9 @@ def parse_arguments():
     parser.add_argument("--learn_threshold",
                         action="store_true",
                         default=False)
+    parser.add_argument("--cache_predictions",
+                        action="store_true",
+                        default=False)
     ## Parse Arguments
     args = parser.parse_args()
     ## Check Config
@@ -666,40 +669,52 @@ def main():
             LOGGER.info("{}: {}".format(k, ", ".join(top_terms)))
     ## Show Average Topic Distribution (Training Data)
     LOGGER.info("Plotting Average Topic Distributions")
-    fig, ax = plot_average_topic_distribution(theta=theta_train,
-                                              model=model,
-                                              use_plda=config.use_plda,
-                                              n_burn=0)
-    fig.savefig(f"{basedir}/topic_model/average_topic_distribution_train{args.plot_fmt}",dpi=300)
-    plt.close(fig)
+    try:
+        fig, ax = plot_average_topic_distribution(theta=theta_train,
+                                                  model=model,
+                                                  use_plda=config.use_plda,
+                                                  n_burn=0)
+        fig.savefig(f"{basedir}/topic_model/average_topic_distribution_train{args.plot_fmt}",dpi=300)
+        plt.close(fig)
+    except:
+        pass
     ## Show Average Topic Distribution (Development Data)
-    fig, ax = plot_average_topic_distribution(theta=theta_dev,
-                                              model=model,
-                                              use_plda=config.use_plda,
-                                              n_burn=0)
-    fig.savefig(f"{basedir}/topic_model/average_topic_distribution_development{args.plot_fmt}",dpi=300)
-    plt.close(fig)
+    try:
+        fig, ax = plot_average_topic_distribution(theta=theta_dev,
+                                                  model=model,
+                                                  use_plda=config.use_plda,
+                                                  n_burn=0)
+        fig.savefig(f"{basedir}/topic_model/average_topic_distribution_development{args.plot_fmt}",dpi=300)
+        plt.close(fig)
+    except:
+        pass
     ## Show Trace for a Document Topic Distribution (Random Sample)
     if args.plot_document_topic:
         LOGGER.info("Plotting Sample of Document Topic Distributions")
         for doc_n in np.random.choice(theta_train.shape[1], 10):
-            fig, ax = plot_document_topic_distribution(doc=doc_n,
-                                                       theta=theta)
-            fig.savefig(f"{basedir}/topic_model/document_topic/train_{doc_n}{args.plot_fmt}",dpi=300)
-            plt.close(fig)
+            try:
+                fig, ax = plot_document_topic_distribution(doc=doc_n,
+                                                           theta=theta)
+                fig.savefig(f"{basedir}/topic_model/document_topic/train_{doc_n}{args.plot_fmt}",dpi=300)
+                plt.close(fig)
+            except:
+                pass
     ## Show Trace for a Topic Word Distribution
     if args.plot_topic_word:
         LOGGER.info("Plotting Topic Word Distributions")
         for topic in tqdm(range(K), total=K, desc="Topic Word Distribution", file=sys.stdout):
-            fig, ax = plot_topic_word_distribution(topic=topic,
-                                                   phi=phi,
-                                                   model=model,
-                                                   use_plda=config.use_plda,
-                                                   n_trace=30,
-                                                   n_top=30,
-                                                   n_burn=config.n_burn)
-            fig.savefig(f"{basedir}/topic_model/topic_word/topic_{topic}{args.plot_fmt}",dpi=300)
-            plt.close(fig)
+            try:
+                fig, ax = plot_topic_word_distribution(topic=topic,
+                                                       phi=phi,
+                                                       model=model,
+                                                       use_plda=config.use_plda,
+                                                       n_trace=30,
+                                                       n_top=30,
+                                                       n_burn=config.n_burn if config.n_burn < phi.shape[0] else -100)
+                fig.savefig(f"{basedir}/topic_model/topic_word/topic_{topic}{args.plot_fmt}",dpi=300)
+                plt.close(fig)
+            except:
+                pass
     ################
     ### Depression Classifier Training
     ################
@@ -739,6 +754,22 @@ def main():
     if args.evaluate_test:
         y_test_s = y_test[source_test_ind]
         y_test_t = y_test[target_test_ind]
+    ## Caching
+    if args.cache_predictions:
+        ## Labels
+        _ = np.save(f"{basedir}/classification/labels.train.npy", y_train)
+        _ = np.save(f"{basedir}/classification/labels.dev.npy", y_dev)
+        ## Indices
+        _ = np.save(f"{basedir}/classification/source.train.npy", source_train_ind)
+        _ = np.save(f"{basedir}/classification/target.train.npy", target_train_ind)
+        _ = np.save(f"{basedir}/classification/source.dev.npy", source_dev_ind)
+        _ = np.save(f"{basedir}/classification/target.dev.npy", target_dev_ind)
+        if args.evaluate_test:
+            ## Labels
+            _ = np.save(f"{basedir}/classification/labels.test.npy", y_test)
+            ## Indices
+            _ = np.save(f"{basedir}/classification/source.test.npy", source_test_ind)
+            _ = np.save(f"{basedir}/classification/target.test.npy", target_test_ind)
     ## Cycle Through Types of Preprocessing, Training, and Inference
     all_scores = []
     for C in config.C:
@@ -795,6 +826,13 @@ def main():
                     y_pred_dev[m] = mdl.predict_proba(X_dev[m])[:,1]
                     if args.evaluate_test:
                         y_pred_test[m] = mdl.predict_proba(X_test[m])[:,1]
+                ## Cache Predictions
+                if args.cache_predictions:
+                    ## Predictions
+                    _ = np.save(f"{basedir}/classification/predictions.train.{C}.{average_representation}.{norm}.npy", y_pred_train)
+                    _ = np.save(f"{basedir}/classification/predictions.dev.{C}.{average_representation}.{norm}.npy", y_pred_dev)
+                    if args.evaluate_test:
+                        _ = np.save(f"{basedir}/classification/predictions.{C}.{average_representation}.{norm}.dev.npy", y_pred_test)
                 ## Learn Optimal Thresholds (Youden's J-Score)
                 thresholds = {}
                 for m, mdl_pred in tqdm(enumerate(y_pred_dev), total=y_pred_dev.shape[0], desc="Learning Binarization Thresholds", file=sys.stdout):

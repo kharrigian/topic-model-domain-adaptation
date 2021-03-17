@@ -155,9 +155,9 @@ def plot_marginal_influence(scores_df,
     """
     ## Get Relevant Data Aggregations
     if vc not in JOINT_PARAMS.keys():
-        group_cols = [v for v in vary_cols if v != vc and v not in JOINT_PARAMS.keys()]
+        group_cols = [v for v in vary_cols_all if v != vc and v not in JOINT_PARAMS.keys()]
     else:
-        group_cols = [v for v in vary_cols if v != vc and v not in flatten(JOINT_PARAMS.values())]
+        group_cols = [v for v in vary_cols_all if v != vc and v not in flatten(JOINT_PARAMS.values())]
     grouped_scores = scores_df.groupby(["domain","group"] + group_cols + [vc])[metric].agg([aggfunc, np.std])
     grouped_scores_all = scores_df.groupby(["domain","group"] + vary_cols_all)[metric].mean()
     grouped_scores_avg = scores_df.groupby(["domain","group",vc])[metric].agg(bootstrap_ci).to_frame()

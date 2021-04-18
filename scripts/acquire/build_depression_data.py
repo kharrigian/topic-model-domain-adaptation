@@ -5,6 +5,10 @@ labels for a target dataset. Also defines
 splits for evaluation/training.
 """
 
+## Where Standardized Data Formats Live
+MH_DATA_DIR = "/export/fs03/a08/kharrigian/mental-health/data/processed/"
+PLDA_DIR = "/export/c01/kharrigian/topic-model-domain-adaptation/"
+
 #####################
 ### Imports
 #####################
@@ -28,15 +32,16 @@ from scipy.sparse import vstack, save_npz
 from sklearn.feature_extraction import DictVectorizer
 from mhlib.util.helpers import flatten, chunks
 from mhlib.preprocess.tokenizer import Tokenizer, get_ngrams
+from mhlib.util.logging import initialize_logger
 
 #####################
 ### Globals
 #####################
 
 ## Location of Semi-Processed Data
-MH_DATA_DIR = "/Users/kharrigian/Dev/research/johns-hopkins/dredze/mental-health/data/processed/"
 MH_DATA_SUFFIXES = {
     "clpsych":"twitter/qntfy/",
+    "clpsych_deduped":"twitter/qntfy/",
     "multitask":"twitter/qntfy/",
     "rsdd":"reddit/rsdd/",
     "smhd":"reddit/smhd/",
@@ -46,6 +51,7 @@ MH_DATA_SUFFIXES = {
 ## Date Ranges
 MH_DATA_DATE_BOUNDARIES = {
     "clpsych":("2011-01-01","2013-12-01"),
+    "clpsych_deduped":("2011-01-01","2013-12-01"),
     "multitask":("2013-01-01","2016-01-01"),
     "rsdd":("2010-01-01","2017-01-01"),
     "smhd":("2011-01-01","2018-01-01"),
@@ -53,7 +59,10 @@ MH_DATA_DATE_BOUNDARIES = {
 }
 
 ## Where to Output Depression Data
-CACHE_DIR = "./data/raw/depression/"
+CACHE_DIR = f"{PLDA_DIR}/data/raw/depression/".replace("//","/")
+
+## Logging
+LOGGER = initialize_logger()
 
 ## Tokenizer
 TOKENIZER = Tokenizer(stopwords=set(),
@@ -100,6 +109,9 @@ def parse_arguments():
                         action="store_true",
                         default=False)
     parser.add_argument("--binarize_vocab",
+                        action="store_true",
+                        default=False)
+    parser.add_argument("--pretokenize",
                         action="store_true",
                         default=False)
     parser.add_argument("--chunksize",
@@ -293,7 +305,7 @@ def get_dataset_splits(label_map,
     if random_state is not None:
         np.random.seed(random_state)
     ## Case 1: No Splits
-    if "split" not in label_map.columns:
+    if "split" not in label_map.columns or label_map["split"].unique()[0] == "all":
         test_ind = np.random.choice(label_map.index,
                                     size=int(label_map.shape[0] * test_size),
                                     replace=False)
@@ -334,12 +346,54 @@ def get_dataset_splits(label_map,
     label_map = label_map.reset_index(drop=True)
     return label_map, user_id_map
 
+def load_and_tokenize(filename,
+                      min_n=1,
+                      max_n=1,
+                      min_date=None,
+                      max_date=None,
+                      remove_retweets=False,
+                      cache_dir=None,
+                      pretokenized=False):
+    """
+
+    """
+    ## Load Data
+    data = load_json_file(filename)
+    ## Apply Tokenization
+    if not pretokenized:
+        ## Retweet Filtering
+        if remove_retweets:
+            data = [i for i in data if "RT @" not in i.get("text")]
+        ## Date Filtering
+        if min_date is None:
+            min_date = min(i.get("created_utc") for i in data) if len(data) > 0 else -1
+        if max_date is None:
+            max_date = max(i.get("created_utc") for i in data) if len(data) > 0 else np.inf
+        data = [i for i in data if i.get("created_utc")>=min_date and i.get("created_utc")<=max_date]
+        ## Tokenize Text
+        tokens = list(map(TOKENIZER.tokenize, [i["text"] for i in data]))
+        ## Get Ngrams
+        ngrams = list(map(lambda x: get_ngrams(x, min_n, max_n), tokens))
+    else:
+        ## Isolate Ngrams from Pretokenized Data
+        ngrams = [list(map(tuple, i["text"])) for i in data]
+    ## Return
+    if cache_dir is None:
+        return ngrams
+    ## Cache
+    ngrams = [{"text":n} for n in ngrams]
+    cache_file = f"{cache_dir}/{os.path.basename(filename)}".replace("//","/")
+    with gzip.open(cache_file,"wt") as the_file:
+        json.dump(ngrams, the_file)
+    return (filename, cache_file)
+
 def tokenize_and_count(filename,
                        min_n=1,
                        max_n=1,
                        min_date=None,
                        max_date=None,
-                       remove_retweets=True):
+                       remove_retweets=True,
+                       pretokenized=False):
     """
     Args:
         filename (str):
@@ -348,28 +402,55 @@ def tokenize_and_count(filename,
         min_date (None or int)
         max_date (None or int)
         remove_retweets (bool)
+        pretokenized (bool)
     
     Returns:
         token_counts (Counter): Count of n-grams
     """
-    ## Load Data
-    data = load_json_file(filename)
-    ## Retweet Filtering
-    if remove_retweets:
-        data = [i for i in data if "RT @" not in i.get("text")]
-    ## Date Filtering
-    if min_date is None:
-        min_date = min(i.get("created_utc") for i in data) if len(data) > 0 else -1
-    if max_date is None:
-        max_date = max(i.get("created_utc") for i in data) if len(data) > 0 else np.inf
-    data = [i for i in data if i.get("created_utc")>=min_date and i.get("created_utc")<=max_date]
-    ## Tokenize Text
-    tokens = list(map(TOKENIZER.tokenize, [i["text"] for i in data]))
     ## Get Ngrams
-    ngrams = list(map(lambda x: get_ngrams(x, min_n, max_n), tokens))
+    ngrams = load_and_tokenize(filename,
+                               min_n=min_n,
+                               max_n=max_n,
+                               min_date=min_date,
+                               max_date=max_date,
+                               remove_retweets=remove_retweets,
+                               pretokenized=pretokenized,
+                               cache_dir=None)
     ## Count
     token_counts = Counter(flatten(ngrams))
     return token_counts
+
+def apply_tokenizer(filenames,
+                    cache_dir,
+                    min_n=1,
+                    max_n=1,
+                    min_date=None,
+                    max_date=None,
+                    remove_retweets=False,
+                    jobs=4):
+    """
+
+    """
+    ## Tokenizer
+    helper = partial(load_and_tokenize,
+                     min_n=min_n,
+                     max_n=max_n,
+                     min_date=min_date,
+                     max_date=max_date,
+                     remove_retweets=remove_retweets,
+                     cache_dir=cache_dir,
+                     pretokenized=False)
+    ## Initialize Pool
+    mp = Pool(jobs)
+    filenames = list(tqdm(mp.imap_unordered(helper, filenames),
+                          desc="Tokenizer",
+                          total=len(filenames),
+                          file=sys.stdout))
+    _ = mp.close()
+    ## Filename Map
+    filenames = dict((y,x) for x, y in filenames)
+    ## Return Filenames
+    return filenames
 
 def learn_vocabulary(filenames,
                      chunksize=100,
@@ -381,7 +462,8 @@ def learn_vocabulary(filenames,
                      max_n=1,
                      remove_retweets=True,
                      binarize=False,
-                     jobs=4):
+                     jobs=4,
+                     pretokenized=False):
     """
     Args:
         filenames (list of str): Raw data filenames
@@ -400,7 +482,8 @@ def learn_vocabulary(filenames,
                       max_date=max_date,
                       min_n=min_n,
                       max_n=max_n,
-                      remove_retweets=remove_retweets)
+                      remove_retweets=remove_retweets,
+                      pretokenized=pretokenized)
     ## Process Data
     filechunks = list(chunks(filenames, chunksize))
     chunks_processed = 0
@@ -456,7 +539,8 @@ def _vectorize_file(filename,
                     max_date=None,
                     min_n=1,
                     max_n=1,
-                    remove_retweets=False):
+                    remove_retweets=False,
+                    pretokenized=False):
     """
 
     """
@@ -465,7 +549,8 @@ def _vectorize_file(filename,
                                      max_date=max_date,
                                      min_n=min_n,
                                      max_n=max_n,
-                                     remove_retweets=remove_retweets)
+                                     remove_retweets=remove_retweets,
+                                     pretokenized=pretokenized)
     x = cvec.transform(file_counts)
     return filename, x
 
@@ -475,7 +560,8 @@ def vectorize_files(filenames,
                     min_n=1,
                     max_n=1,
                     remove_retweets=False,
-                    jobs=4):
+                    jobs=4,
+                    pretokenized=False):
     """
 
     """
@@ -485,7 +571,8 @@ def vectorize_files(filenames,
                          max_date=max_date,
                          min_n=min_n,
                          max_n=max_n,
-                         remove_retweets=remove_retweets)
+                         remove_retweets=remove_retweets,
+                         pretokenized=pretokenized)
     ## Vectorize using Multiprocessing
     mp = Pool(jobs)
     results = list(tqdm(mp.imap_unordered(vectorizer, filenames), total=len(filenames), desc="Vectorizing Files", file=sys.stdout))
@@ -520,18 +607,33 @@ def main():
                                      dev_size=.2,
                                      test_size=.2,
                                      random_state=42)
+    ## Pretokenize if Desired
+    if args.pretokenize:
+        ## Create Temporary Directory
+        temp_token_dir = f"{dataset_cache_dir}temp_tokenized/"
+        if not os.path.exists(temp_token_dir):
+            _ = os.makedirs(temp_token_dir)
+        ## Apply Tokenizer
+        temp_filenames = apply_tokenizer(filenames=label_map["source"].tolist(),
+                                         cache_dir=temp_token_dir,
+                                         **preprocessing_kwargs)
     ## Learn Vocabulary
-    vocabulary = learn_vocabulary(filenames=label_map["source"].tolist(),
-                     chunksize=args.chunksize,
-                     prune_rate=args.prune_rate,
-                     min_prune_freq=args.min_prune_freq,
-                     binarize=args.binarize_vocab,
-                     **preprocessing_kwargs)
+    vocabulary = learn_vocabulary(filenames=label_map["source"].tolist() if not args.pretokenize else list(temp_filenames.keys()),
+                                  chunksize=args.chunksize,
+                                  prune_rate=args.prune_rate,
+                                  min_prune_freq=args.min_prune_freq,
+                                  binarize=args.binarize_vocab,
+                                  pretokenized=args.pretokenize,
+                                  **preprocessing_kwargs)
     ## Extract Terms
     terms = ["_".join(i) for i in cvec.feature_names_]
     ## Vectorize The Data
-    filenames, X = vectorize_files(filenames=label_map["source"].tolist(),
+    filenames, X = vectorize_files(filenames=label_map["source"].tolist() if not args.pretokenize else list(temp_filenames.keys()),
+                                   pretokenized=args.pretokenize,
                                    **preprocessing_kwargs)
+    ## Remamp Filenames
+    if args.pretokenize:
+        filenames = [temp_filenames[f] for f in filenames]
     ## Vectorize the Metadata
     y = (label_map.set_index("source").loc[filenames]["depression"]=="depression").astype(int).tolist()
     u = label_map.set_index("source").loc[filenames]["user_id_str"].tolist()
@@ -552,6 +654,10 @@ def main():
                      binarize=args.binarize_vocab))
     with open(f"{dataset_cache_dir}config.json","w") as the_file:
         json.dump(preprocessing_kwargs, the_file)
+    ## Remove Temporary Files
+    if args.pretokenize:
+        LOGGER.info("Removing Temporary Files")
+        _ = os.system("rm -rf {}".format(temp_token_dir))
 
 ######################
 ### Execute

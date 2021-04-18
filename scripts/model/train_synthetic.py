@@ -265,25 +265,29 @@ def main():
     ## Split Data into Training and Test
     train_ind = list(range(int(config.N*.8)))
     test_ind = list(range(int(config.N*.8),config.N))
+    ## Generate Corpus
+    train_corpus = tp.utils.Corpus()
+    full_corpus = tp.utils.Corpus()
+    ## Add Training Data
+    for n in range(X.shape[0]):
+        doc_n = doc_to_str(X[n])
+        full_corpus.add_doc(doc_n, label=[str(D[n])])
+        if n <= train_ind[-1]:
+            train_corpus.add_doc(doc_n, label=[str(D[n])])
+    assert len(train_corpus) == len(train_ind)
     ## Initialize Models (3 Topics Total)
     lda = tp.LDAModel(k=3,
+                      corpus=train_corpus,
                       seed=config.random_state if config.random_state is not None else np.random.randint(1e6))
     plda = tp.PLDAModel(latent_topics=1,
                         topics_per_label=1,
+                        corpus=train_corpus,
                         seed=config.random_state if config.random_state is not None else np.random.randint(1e6))
-    ## Add Training Data
-    for n in train_ind:
-        doc_n = doc_to_str(X[n])
-        lda.add_doc(doc_n)
-        plda.add_doc(doc_n, [str(D[n])])
     ## Initialize Sampler
     lda.train(1)
     plda.train(1)
     ## Update Parameters based on Corpus
     V_nn = lda.num_vocabs
-    ## Generate Documents for Inference
-    docs_lda = [lda.make_doc(doc_to_str(x)) for x in X]
-    docs_plda = [plda.make_doc(doc_to_str(x), [str(D[i])]) for i, x in enumerate(X)]
     ## MCMC Storage
     n_iter = max(config.n_iter_lda, config.n_iter_plda)
     likelihood = np.zeros((n_iter, 2)) * np.nan
@@ -291,17 +295,24 @@ def main():
     theta_plda = np.zeros((n_iter, config.N, 3)) * np.nan
     phi_lda = np.zeros((n_iter, 3, V_nn)) * np.nan
     phi_plda = np.zeros((n_iter, 3, V_nn)) * np.nan
+    ## Word Count
+    train_word_n = sum([len(d.words) for d in full_corpus[train_ind]])
+    test_word_n = sum([len(d.words) for d in full_corpus[test_ind]])
     ## Train LDA Model
     for epoch in tqdm(range(config.n_iter_lda), desc="LDA Training"):
         lda.train(1)
-        likelihood[epoch,0] = lda.ll_per_word
-        theta_lda[epoch] = np.vstack(lda.infer(docs_lda, iter=config.n_sample)[0])
+        train_inf, train_ll = lda.infer(full_corpus[train_ind], iter=config.n_sample)
+        test_inf, test_ll = lda.infer(full_corpus[test_ind], iter=config.n_sample)
+        likelihood[epoch,0] = train_ll.sum() / train_word_n
+        theta_lda[epoch] = np.vstack(flatten([[d.get_topic_dist() for d in inf] for inf in [train_inf, test_inf]]))
         phi_lda[epoch] = np.vstack([lda.get_topic_word_dist(t) for t in range(lda.k)])
     ## Train PLDA Model
     for epoch in tqdm(range(config.n_iter_plda), desc="PLDA Training"):
         plda.train(1)
-        likelihood[epoch,1] = plda.ll_per_word
-        theta_plda[epoch] = np.vstack(plda.infer(docs_plda, iter=config.n_sample)[0])
+        train_inf, train_ll = plda.infer(full_corpus[train_ind], iter=config.n_sample)
+        test_inf, test_ll = plda.infer(full_corpus[test_ind], iter=config.n_sample)
+        likelihood[epoch,1] = train_ll.sum() / train_word_n
+        theta_plda[epoch] = np.vstack(flatten([[d.get_topic_dist() for d in inf] for inf in [train_inf, test_inf]]))
         phi_plda[epoch] = np.vstack([plda.get_topic_word_dist(t) for t in range(plda.k)])
     ## Plot Likelihood
     if args.make_plots:
@@ -343,8 +354,8 @@ def main():
         fig.tight_layout()
         plt.show()
     ## Get Final Representations
-    X_latent_lda = np.vstack(lda.infer(docs_lda, iter=config.n_sample, together=True)[0])
-    X_latent_plda = np.vstack(plda.infer(docs_plda, iter=config.n_sample, together=True)[0])
+    X_latent_lda = np.vstack([d.get_topic_dist() for d in lda.infer(full_corpus, iter=config.n_sample, together=False)[0]])
+    X_latent_plda =  np.vstack([d.get_topic_dist() for d in plda.infer(full_corpus, iter=config.n_sample, together=False)[0]])
     ## Isolate Latent Variables and Normalize
     X_latent_plda = X_latent_plda[:,-plda.latent_topics:]
     ## Fit Classifiers
